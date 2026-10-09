@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSCameraUsageDescription</key>
+  <string>Scan an authenticator or device pairing QR code when you choose the camera.</string>
+  <key>NSPhotoLibraryUsageDescription</key>
+  <string>Select a QR image to add an authenticator account or pair this device.</string>
+</dict>
+</plist>

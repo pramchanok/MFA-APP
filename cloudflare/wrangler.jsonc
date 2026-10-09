@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mfa-sync",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-09",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": { "enabled": false },
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "mfa-sync",
+    // Dedicated MFA database, provisioned in APAC. Change for another account.
+    "database_id": "cad1a214-501d-485e-9b6d-b637f3c50cd1",
+    "migrations_dir": "migrations"
+  }],
+  "ratelimits": [
+    { "name": "IP_LIMITER", "namespace_id": "29401", "simple": { "limit": 240, "period": 60 } },
+    { "name": "VAULT_LIMITER", "namespace_id": "29402", "simple": { "limit": 60, "period": 60 } },
+    { "name": "REGISTER_LIMITER", "namespace_id": "29403", "simple": { "limit": 5, "period": 60 } }
+  ]
+}

@@ -1,0 +1,61 @@
+name: mfa-sync
+services:
+  sync:
+    build:
+      context: ./server
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${SYNC_PORT:-8787}:8787"
+    environment:
+      SYNC_REGISTRATION_TOKEN: ${SYNC_REGISTRATION_TOKEN:?Set a random owner registration token in .env}
+      SYNC_MAX_VAULTS: ${SYNC_MAX_VAULTS:-1000}
+      SYNC_MAX_RECORDS_PER_VAULT: ${SYNC_MAX_RECORDS_PER_VAULT:-100000}
+      SYNC_MAX_BYTES_PER_VAULT: ${SYNC_MAX_BYTES_PER_VAULT:-67108864}
+      SYNC_MAX_TOTAL_BYTES: ${SYNC_MAX_TOTAL_BYTES:-1073741824}
+      SYNC_RATE_LIMIT_PER_MINUTE: ${SYNC_RATE_LIMIT_PER_MINUTE:-120}
+    volumes:
+      - sync-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    pids_limit: 64
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+  caddy:
+    image: caddy:2-alpine
+    profiles: [tls]
+    restart: unless-stopped
+    environment:
+      SYNC_DOMAIN: ${SYNC_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      sync:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+volumes:
+  sync-data:
+  caddy-data:
+  caddy-config:

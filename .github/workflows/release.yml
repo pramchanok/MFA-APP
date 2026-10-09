@@ -1,0 +1,123 @@
+name: Build and publish signed release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test scripts/github-release.test.cjs
+      - run: node scripts/check-release-version.mjs
+      - name: Refuse to modify an already published release
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { assertDraftAllowed } = require('./scripts/github-release.cjs');
+            const { version } = require('./package.json');
+            await assertDraftAllowed({ github, context, tag: `v${version}`, kind: 'signed' });
+  release:
+    needs: preflight
+    # Serial builds preserve all platform entries when latest.json is updated.
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - name: Require updater signing material
+        shell: bash
+        env:
+          MFA_UPDATER_PUBLIC_KEY: ${{ secrets.MFA_UPDATER_PUBLIC_KEY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_PROVISIONING_PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          test -n "$MFA_UPDATER_PUBLIC_KEY" || { echo 'Missing MFA_UPDATER_PUBLIC_KEY'; exit 1; }
+          test -n "$TAURI_SIGNING_PRIVATE_KEY" || { echo 'Missing TAURI_SIGNING_PRIVATE_KEY'; exit 1; }
+          node scripts/prepare-release.mjs
+      - name: Require macOS signing and notarization material
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for variable in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            test -n "${!variable}" || { echo "Missing $variable"; exit 1; }
+          done
+      - run: npm test
+      - run: npm run build
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - name: Build and stage signed artifacts
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: v__VERSION__
+          releaseName: MFA Desktop v__VERSION__
+          releaseBody: Windows x64 and macOS Apple Silicon / Intel installers, signed updater artifacts and latest.json. Published after all platform builds succeed.
+          releaseDraft: true
+          prerelease: false
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+          releaseCommitish: ${{ github.sha }}
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config src-tauri/tauri.release.conf.json
+
+  publish:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish after every platform succeeds
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { publishRelease } = require('./scripts/github-release.cjs');
+            const { version } = require('./package.json');
+            await publishRelease({ github, context, core, tag: `v${version}`, kind: 'signed' });

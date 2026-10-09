@@ -1,0 +1,24 @@
+.import-intro { margin-top: 0; }
+.import-source-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 20px 0; }
+.import-source { display: flex; align-items: center; gap: 12px; padding: 16px; text-align: left; border: 1px solid var(--border, #dce3ec); border-radius: 12px; background: var(--surface, #fff); color: inherit; }
+.import-source:hover:not(:disabled) { border-color: var(--primary); background: var(--hover); }
+.import-source > svg { flex-shrink: 0; color: var(--primary); }
+.import-source span { display: grid; gap: 4px; }
+.import-source strong { font-size: 14px; }
+.import-source small { color: var(--muted, #68758a); font-size: 12px; }
+.import-entry-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 20px 0 10px; font-size: 14px; }
+.import-entry-heading .text-button { display: inline-flex; align-items: center; gap: 6px; }
+.import-uri-form { display: flex; align-items: stretch; gap: 8px; }
+.import-uri-form input { flex: 1; min-width: 0; min-height: 44px; color: var(--ink); background: var(--surface); border: 1px solid var(--border); padding: 11px 12px; border-radius: 7px; font-size: 13px; }
+.import-uri-form button { flex-shrink: 0; }
+.manual-identities { grid-template-columns: 1fr 1fr; }
+.import-help { margin-top: 20px; }
+.import-help p { font-size: 13px; line-height: 1.7; }
+.camera-scanner { padding: 14px; border: 1px solid var(--border, #dce3ec); border-radius: 12px; background: var(--canvas); }
+.camera-frame { position: relative; overflow: hidden; aspect-ratio: 16 / 10; border-radius: 8px; background: #121923; }
+.camera-frame video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.camera-guide { position: absolute; width: 58%; aspect-ratio: 1; max-height: 85%; border: 2px solid #fff; border-radius: 10px; inset: 0; margin: auto; box-shadow: 0 0 0 999px #0004; pointer-events: none; }
+.camera-error { padding: 12px; text-align: center; }
+.camera-error p { font-size: 14px; line-height: 1.7; }
+.camera-error + button { margin-top: 12px; }
+@media (max-width: 480px) { .import-source-actions { gap: 8px; } .import-source { flex-direction: column; align-items: flex-start; padding: 12px; gap: 8px; } .import-uri-form { flex-direction: column; } .manual-identities { grid-template-columns: 1fr; } .import-entry-heading { flex-wrap: wrap; } }

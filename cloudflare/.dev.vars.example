@@ -1,0 +1,3 @@
+# Generate a private canonical 32-byte base64url token; do not use this blank value.
+SYNC_REGISTRATION_TOKEN=
+SYNC_DEBUG_LOGGING=true

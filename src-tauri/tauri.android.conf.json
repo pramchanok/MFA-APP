@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MFA Authenticator",
+  "app": {
+    "windows": [{
+      "label": "main",
+      "title": "MFA Authenticator",
+      "backgroundColor": "#F4F7FB"
+    }]
+  },
+  "bundle": {
+    "android": { "minSdkVersion": 24 },
+    "shortDescription": "Encrypted authenticator with device sync"
+  }
+}

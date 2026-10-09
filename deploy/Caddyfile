@@ -1,0 +1,12 @@
+{$SYNC_DOMAIN} {
+  request_body {
+    max_size 1MB
+  }
+  header {
+    Strict-Transport-Security "max-age=31536000"
+    X-Content-Type-Options nosniff
+    -Server
+  }
+  reverse_proxy sync:8787
+  # Do not enable access logging: URLs identify vaults and headers may contain credentials.
+}

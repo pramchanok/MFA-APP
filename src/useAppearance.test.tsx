@@ -1,0 +1,30 @@
+import { act, cleanup, renderHook } from '@testing-library/react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { useAppearance } from './useAppearance';
+beforeEach(() => localStorage.clear());
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+it('tracks the system theme, saves only a display preference and restores an explicit selection', () => {
+  let listener!: (e: { matches: boolean }) => void;
+  const remove = vi.fn();
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: (_: string, callback: typeof listener) => { listener = callback; }, removeEventListener: remove })));
+  const view = renderHook(() => useAppearance());
+  expect(view.result.current.dark).toBe(true);
+  act(() => listener({ matches: false }));
+  expect(document.documentElement.dataset.theme).toBe('light');
+  act(() => view.result.current.setAppearance('dark'));
+  expect(localStorage.getItem('mfa-appearance')).toBe('dark');
+  expect(localStorage.length).toBe(1);
+  view.unmount(); expect(remove).toHaveBeenCalled();
+  const restored = renderHook(() => useAppearance());
+  expect(restored.result.current.appearance).toBe('dark');
+});
+it('falls back safely with blocked storage or invalid saved preferences', () => {
+  localStorage.setItem('mfa-appearance', 'invalid');
+  const first = renderHook(() => useAppearance());
+  expect(first.result.current.appearance).toBe('system'); first.unmount();
+  vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
+  const view = renderHook(() => useAppearance());
+  act(() => view.result.current.setAppearance('dark'));
+  expect(view.result.current.dark).toBe(true);
+});

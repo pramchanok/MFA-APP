@@ -1,0 +1,73 @@
+name: Build mobile test artifacts
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+      - name: Install Android build dependencies
+        run: |
+          sdkmanager "ndk;27.2.12479018"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - run: node scripts/mobile-init.mjs android
+      - name: Install SDK matching the pinned Tauri template
+        run: sdkmanager "platforms;android-$(node scripts/mobile-sdk.mjs)"
+      - run: npm run tauri -- android build --debug --target aarch64 --apk --ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  ios-simulator:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios-sim,x86_64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: brew install xcodegen
+      - run: npm ci
+      - run: node scripts/mobile-init.mjs ios
+      - run: npm run tauri -- ios build --debug --target aarch64-sim --no-sign --ci
+      - name: Archive simulator application without store submission
+        run: |
+          app=$(find src-tauri/gen/apple/build -name '*.app' -type d -print -quit)
+          test -n "$app"
+          ditto -c -k --keepParent "$app" ios-simulator.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-app
+          path: ios-simulator.zip
+          if-no-files-found: error
+          retention-days: 7

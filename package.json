@@ -1,0 +1,52 @@
+{
+  "name": "mfa-desktop",
+  "private": true,
+  "version": "0.5.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 1420 --strictPort",
+    "test": "vitest run",
+    "test:release": "node --test scripts/github-release.test.cjs",
+    "test:server": "node --test server/relay.test.mjs",
+    "test:cloudflare": "npm --prefix cloudflare test",
+    "cloudflare:check": "npm --prefix cloudflare run check",
+    "cloudflare:dev": "npm --prefix cloudflare run dev",
+    "test:watch": "vitest",
+    "tauri": "tauri",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build",
+    "android:init": "node scripts/mobile-init.mjs android",
+    "android:build": "tauri android build --debug --target aarch64 --apk --ci",
+    "ios:init": "node scripts/mobile-init.mjs ios",
+    "ios:build:simulator": "tauri ios build --debug --target aarch64-sim --no-sign --ci",
+    "prepare:release": "node scripts/prepare-release.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.12.2",
+    "@tauri-apps/plugin-dialog": "2.8.1",
+    "@tauri-apps/plugin-process": "2.4.0",
+    "@tauri-apps/plugin-updater": "2.13.2",
+    "jsqr": "1.4.0",
+    "lucide-react": "1.53.0",
+    "qrcode": "1.5.4",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.1",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.7",
+    "@types/node": "26.6.4",
+    "@types/qrcode": "1.5.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "jsdom": "30.1.2",
+    "typescript": "7.0.2",
+    "vite": "8.3.4",
+    "vitest": "5.0.3"
+  }
+}

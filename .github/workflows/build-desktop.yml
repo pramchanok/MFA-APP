@@ -1,0 +1,109 @@
+name: Build desktop installers
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish installers after all builds succeed (unsigned, no OTA)
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test scripts/github-release.test.cjs
+      - name: Check matching app versions
+        id: version
+        run: node scripts/check-release-version.mjs
+      - name: Refuse to modify a published release
+        if: inputs.publish_release
+        uses: actions/github-script@v8
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        with:
+          script: |
+            const { assertDraftAllowed } = require('./scripts/github-release.cjs');
+            await assertDraftAllowed({ github, context, tag: process.env.RELEASE_TAG, kind: 'unsigned' });
+
+  build:
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+            artifact: windows-x64-installer
+            files: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+            artifact: macos-arm64-installer
+            files: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+            artifact: macos-x64-installer
+            files: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - run: npm test
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - name: Build installer without signing secrets
+        run: npm run tauri -- build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    if: inputs.publish_release
+    needs: [preflight, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: '*-installer'
+          path: release-installers
+          merge-multiple: true
+      - name: Upload all installers and publish release
+        uses: actions/github-script@v8
+        env:
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        with:
+          script: |
+            const { createInstallerRelease } = require('./scripts/github-release.cjs');
+            await createInstallerRelease({ github, context, core, tag: process.env.RELEASE_TAG, directory: 'release-installers' });
