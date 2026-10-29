@@ -4,17 +4,22 @@ const path = require('node:path');
 const unsignedMarker = 'Unsigned test installers. Updater is disabled.';
 
 async function assertDraftAllowed({ github, context, tag, kind }) {
+  let release;
   try {
-    const { data } = await github.rest.repos.getReleaseByTag({ ...context.repo, tag });
-    if (!data.draft) throw new Error(`${tag} is already published. Increase the app version; published releases are never overwritten.`);
-    if ((kind === 'unsigned' && !data.body?.includes(unsignedMarker)) || (kind === 'signed' && data.body?.includes(unsignedMarker))) {
-      throw new Error('This tag belongs to a different kind of draft. Delete the draft or increase the app version before switching release workflows.');
-    }
-    return data;
+    ({ data: release } = await github.rest.repos.getReleaseByTag({ ...context.repo, tag }));
   } catch (error) {
-    if (error.status === 404) return null;
-    throw error;
+    if (error.status !== 404) throw error;
+    // The tag endpoint returns published releases. Find drafts through the
+    // authenticated, paginated listing so uploads can resume and publish.
+    const releases = await github.paginate(github.rest.repos.listReleases, { ...context.repo, per_page: 100 });
+    release = releases.find((candidate) => candidate.tag_name === tag);
   }
+  if (!release) return null;
+  if (!release.draft) throw new Error(`${tag} is already published. Increase the app version; published releases are never overwritten.`);
+  if ((kind === 'unsigned' && !release.body?.includes(unsignedMarker)) || (kind === 'signed' && release.body?.includes(unsignedMarker))) {
+    throw new Error('This tag belongs to a different kind of draft. Delete the draft or increase the app version before switching release workflows.');
+  }
+  return release;
 }
 
 async function publishRelease({ github, context, core, tag, kind }) {

@@ -8,14 +8,19 @@ const context = { repo: { owner: 'test', repo: 'test' }, sha: 'test-commit' };
 function fake(release, assets = []) {
   const calls = [];
   const repos = {
-    async getReleaseByTag() { if (!release) throw Object.assign(new Error('not found'), {status:404}); return {data:release}; },
+    // GitHub's tag endpoint only returns published releases.
+    async getReleaseByTag() { if (!release || release.draft) throw Object.assign(new Error('not found'), {status:404}); return {data:release}; },
+    async listReleases() {},
+    async listReleaseAssets() {},
     async createRelease(input) {calls.push(['create', input]); release = {id:1, html_url:'https://example.test/release', ...input}; return {data:release};},
     async uploadReleaseAsset(input) {calls.push(['upload', input]); assets.push({name:input.name});},
     async deleteReleaseAsset(input) {calls.push(['delete',input]);},
     async updateRelease(input) {calls.push(['publish',input]); release = {...release,...input}; return {data:release};},
   };
   const summary = { addHeading(){return this;},addLink(){return this;},addRaw(){return this;},async write(){} };
-  return { github: {rest:{repos}, async paginate(){return assets;}}, calls, core:{summary} };
+  return { github: {rest:{repos}, async paginate(endpoint){
+    return endpoint === repos.listReleases ? (release ? [{tag_name:'v0.5.0',...release}] : []) : assets;
+  }}, calls, core:{summary} };
 }
 test('published releases cannot be overwritten', async () => {
   await assert.rejects(assertDraftAllowed({...fake({id:1,draft:false}),context,tag:'v0.5.0'}), /already published/);
@@ -24,6 +29,19 @@ test('missing release is allowed; authorization failures propagate', async () =>
   assert.equal(await assertDraftAllowed({...fake(null),context,tag:'v0.5.0'}), null);
   const api = fake(null); api.github.rest.repos.getReleaseByTag = async()=>{throw Object.assign(new Error('denied'),{status:403});};
   await assert.rejects(assertDraftAllowed({...api,context,tag:'v0.5.0'}),/denied/);
+});
+
+test('draft lookup falls back to the paginated release listing after tag lookup returns 404', async () => {
+  const release = {id:9,tag_name:'v0.5.0',draft:true,body:'signed release'};
+  const api = fake(release);
+  assert.equal((await assertDraftAllowed({...api,context,tag:'v0.5.0',kind:'signed'})).id,9);
+  assert.equal(await assertDraftAllowed({...api,context,tag:'v0.6.0',kind:'signed'}),null);
+});
+
+test('draft listing authorization errors are not treated as a missing release', async () => {
+  const api = fake(null);
+  api.github.paginate = async () => {throw Object.assign(new Error('listing denied'),{status:403});};
+  await assert.rejects(assertDraftAllowed({...api,context,tag:'v0.5.0',kind:'signed'}),/listing denied/);
 });
 test('signed and unsigned drafts cannot be mixed', async () => {
   await assert.rejects(assertDraftAllowed({...fake({draft:true,body:'signed release'}),context,tag:'v0.5.0',kind:'unsigned'}), /different kind/);
