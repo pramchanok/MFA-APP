@@ -53,6 +53,8 @@ jobs:
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
         with:
+          # Match the installer workflow: Rust 1.100.0 crashes in native Windows tests.
+          toolchain: ${{ runner.os == 'Windows' && '1.99.1' || 'stable' }}
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:

@@ -303,7 +303,18 @@ export default function App() {
       <button className={`nav-item ${overlay === 'settings' || overlay === 'device' || overlay === 'updates' ? 'nav-active' : ''}`} aria-label="ตั้งค่า" onClick={() => setOverlay('settings')}><Settings2 size={18} /><span>ตั้งค่า</span></button>
     </nav><div className="sidebar-bottom"><div className="local-status"><span className="status-dot" /><span>{desktop ? 'คลังบัญชีเข้ารหัสในเครื่อง' : 'ข้อมูลตัวอย่าง'}</span></div><span className="version">เวอร์ชัน {info.version}</span></div></aside>
     <div className="workspace-shell"><header className="app-topbar"><label className="search-field"><Search size={17} /><span className="visually-hidden">ค้นหาบัญชี</span><input type="search" placeholder="ค้นหาบริการหรือชื่อบัญชี…" value={search} onChange={(e) => setSearch(e.target.value)} /></label><div className="topbar-actions"><button className="primary add-account-button" disabled={moving} onClick={() => setOverlay('add')}><Plus size={18} /><span>เพิ่ม / นำเข้าบัญชี</span></button><button className="icon-button" aria-label={appearance.dark ? 'ใช้โหมดสว่าง' : 'ใช้โหมดมืด'} title={appearance.dark ? 'ใช้โหมดสว่าง' : 'ใช้โหมดมืด'} onClick={appearance.toggle}>{appearance.dark ? <Sun size={18} /> : <Moon size={18} />}</button><button className="icon-button lock-button" aria-label="ล็อกแอป" title="ล็อกแอป" onClick={() => void lock()} disabled={!desktop}><LockKeyhole size={18} /></button></div></header>
-    <main className="workspace"><header className="workspace-header"><div><h1>รหัส 2FA ของคุณ</h1><p className="muted">{query ? `${filtered.length} จาก ${accounts.length} บัญชี` : `${accounts.length} บัญชี · พร้อมใช้รหัสยืนยัน`}</p></div></header>
+    <main className="workspace"><header className="workspace-header">
+      <div><h1>รหัส 2FA ของคุณ</h1><p className="muted">{query ? `${filtered.length} จาก ${accounts.length} บัญชี` : `${accounts.length} บัญชี · พร้อมใช้รหัสยืนยัน`}</p></div>
+      {accounts.length > 0 && <div className="card-size-control">
+        <span id="card-size-label">ขนาดการ์ด</span>
+        <div className="card-size-options" role="group" aria-labelledby="card-size-label">
+          {([{ value: 'compact', label: 'กะทัดรัด' }, { value: 'standard', label: 'มาตรฐาน' }, { value: 'large', label: 'ใหญ่' }] as const).map(({ value, label }) => <button
+            key={value} type="button" aria-pressed={appearance.cardSize === value}
+            disabled={moving || !!cardDrag.drag} onClick={() => appearance.setCardSize(value)}
+          >{label}</button>)}
+        </div>
+      </div>}
+    </header>
       {!desktop && <div className="preview-banner"><span>ตัวอย่างหน้าจอ</span>รหัสและบัญชีสมมติ · เพิ่มบัญชีจริงได้ในแอปที่ติดตั้งเท่านั้น</div>}
       {error && !deleting && overlay !== 'import' && <div className="error workspace-error" role="alert">{error}<button className="text-button" onClick={() => setError('')}>ปิด</button></div>}
       <div className="account-list-help"><span>คลิกการ์ดเพื่อคัดลอกรหัส</span><span id="reorder-help"><GripVertical size={15} />ลากจุดจับเพื่อเรียงบัญชี <span className="visually-hidden">หรือโฟกัสจุดจับแล้วใช้ลูกศรเพื่อย้าย Home เพื่อย้ายบนสุด End เพื่อย้ายท้ายสุด</span></span></div><section className="account-grid" data-card-size={appearance.cardSize} aria-label="บัญชี 2FA" aria-busy={moving}>
@@ -318,7 +329,7 @@ export default function App() {
       <footer className="workspace-footer"><span><WifiOff size={15} />สร้างรหัสได้แบบออฟไลน์</span><span>เวลาในเครื่องต้องตรง เพื่อให้รหัสใช้งานได้</span></footer>
       {notice && <div className="toast" role="status"><Check size={18} />{notice}</div>}
     </main></div>
-    {overlay === 'settings' && <Settings appearance={appearance.appearance} onAppearance={appearance.setAppearance} cardSize={appearance.cardSize} onCardSize={appearance.setCardSize} info={info} device={device} native={desktop} updateHint={updateHint} onClose={() => setOverlay(null)} onDevice={() => setOverlay('device')} onUpdates={() => setOverlay('updates')} />}
+    {overlay === 'settings' && <Settings appearance={appearance.appearance} onAppearance={appearance.setAppearance} info={info} device={device} native={desktop} updateHint={updateHint} onClose={() => setOverlay(null)} onDevice={() => setOverlay('device')} onUpdates={() => setOverlay('updates')} />}
     {overlay === 'backup' && <Backup enabled={desktop && !info.mobile} busy={busy} onClose={() => setOverlay(null)} onExport={() => void exportBackup()} onImport={() => void chooseImport()} />}
     {overlay === 'add' && <AddAccount onClose={() => setOverlay(null)} onSaved={(result, count) => { if (token === generation.current) { revision.current += 1; setAccounts(result); setSearch(''); setGoogleImportedCount(count ?? 0); setOverlay(count ? 'google-done' : null); notify(count ? `นำเข้าแล้ว ${count} บัญชี` : 'เพิ่มบัญชีแล้ว'); void sync.refresh(); } }} />}
     {overlay === 'google-done' && <GoogleImportResult count={googleImportedCount} status={sync.status} working={sync.working} syncError={sync.error} onClose={() => { setGoogleImportedCount(0); setOverlay(null); }} onSync={() => { setGoogleImportedCount(0); setOverlay(sync.status?.configured ? 'sync' : 'sync-create'); }} />}

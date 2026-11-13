@@ -21,6 +21,14 @@ const releaseConfig = {
   bundle: { createUpdaterArtifacts: true },
   plugins: { updater: { pubkey: publicKey } },
 };
+const endpoint = process.env.MFA_UPDATER_ENDPOINT?.trim();
+if (endpoint) {
+  const url = new URL(endpoint);
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
+    throw new Error('MFA_UPDATER_ENDPOINT must be an HTTPS URL without credentials, query or fragment.');
+  }
+  releaseConfig.plugins.updater.endpoints = [url.href];
+}
 if (process.platform === 'darwin') {
   const team = process.env.APPLE_TEAM_ID?.trim();
   if (!/^[A-Z0-9]{10}$/.test(team ?? '')) {

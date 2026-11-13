@@ -41,7 +41,7 @@ export function Updates({ configured, automatic, onClose }: { configured: boolea
     } catch (e) { setError(safeError(e)); setState('error'); }
   }
   return <Modal title="อัปเดตแอป" onClose={onClose} busy={state === 'installing' || state === 'checking'}>
-    {!configured ? <div className="update-message"><RefreshCw size={32} /><h3>ยังไม่ได้เปิดระบบอัปเดต</h3><p className="muted">เวอร์ชันนี้ยังไม่ได้ตั้งค่าลายเซ็นสำหรับอัปเดต เมื่อมีรุ่นเผยแพร่ที่ตั้งค่าแล้ว แอปจะตรวจเวอร์ชันใหม่ให้ได้</p></div> : <>
+    {!configured ? <div className="update-message"><RefreshCw size={32} /><h3>ยังไม่ได้เปิดระบบอัปเดต</h3><p className="muted">หากมีรุ่นที่เปิดระบบอัปเดต ให้ดาวน์โหลดและติดตั้งรุ่นนั้นด้วยตัวเองหนึ่งครั้ง จากนั้นจึงตรวจและติดตั้งอัปเดตจากในแอปได้</p></div> : <>
       <div className="update-message"><RefreshCw size={32} /><h3>{state === 'checking' ? 'กำลังตรวจสอบ…' : state === 'current' ? 'คุณใช้เวอร์ชันล่าสุดแล้ว' : update ? `มีเวอร์ชัน ${update.version}` : 'ตรวจสอบเวอร์ชันใหม่'}</h3>
         {update?.body && <p className="release-notes">{update.body}</p>}
         {state === 'installing' && <><progress max={100} value={progress || undefined} /><p>กำลังติดตั้ง… {progress > 0 ? `${progress}%` : ''} แอปจะเปิดใหม่เมื่อเสร็จ</p></>}

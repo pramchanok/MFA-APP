@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
@@ -152,12 +152,13 @@ describe('vault interface', () => {
     expect(api.unlockDevice).not.toHaveBeenCalled();
   });
 
-  it('defaults to compact cards and restores the selected size when reopened', async () => {
+  it('resizes cards from the account page and restores the selected size when reopened', async () => {
     const user = userEvent.setup();
     const view = render(<App />);
     expect(await screen.findByRole('region', { name: 'บัญชี 2FA' })).toHaveAttribute('data-card-size', 'compact');
-    await user.click(screen.getByRole('button', { name: 'ตั้งค่า' }));
-    await user.click(screen.getByRole('button', { name: 'ใหญ่' }));
+    const sizes = await screen.findByRole('group', { name: 'ขนาดการ์ด' });
+    expect(within(sizes).getByRole('button', { name: 'กะทัดรัด' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(within(sizes).getByRole('button', { name: 'ใหญ่' }));
     expect(screen.getByRole('region', { name: 'บัญชี 2FA' })).toHaveAttribute('data-card-size', 'large');
     view.unmount();
     render(<App />);
