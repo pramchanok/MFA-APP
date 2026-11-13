@@ -59,7 +59,14 @@ h1, h2, h3 { letter-spacing: -.025em; }
 .mobile-add { display: none; }
 .preview-banner { background: var(--accent-soft); border: 1px solid var(--border); border-radius: 7px; font-size: 11px; line-height: 1.8; padding: 9px 13px; color: var(--muted); margin-bottom: 22px; }
 .preview-banner span { font-weight: 600; color: var(--primary); margin-right: 10px; }
-.account-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 18px; }
+.account-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--card-width, 280px)), 1fr)); gap: var(--card-gap, 18px); }
+.account-grid[data-card-size="compact"] { --card-width: 236px; --card-gap: 12px; }
+.account-grid[data-card-size="large"] { --card-width: 350px; }
+.account-grid[data-card-size="compact"] .account-card { padding: 10px 12px; }
+.account-grid[data-card-size="compact"] .code-group { padding: 4px 0; gap: 8px; }
+.account-grid[data-card-size="compact"] .otp-code { font-size: 25px; }
+.account-grid[data-card-size="compact"] .copy-button { padding: 5px 8px; min-height: 32px; }
+.account-grid[data-card-size="large"] .otp-code { font-size: 38px; }
 .account-card { min-width: 0; border: 1px solid var(--border); background: var(--surface); border-radius: 12px; padding: 18px; position: relative; cursor: pointer; transition: border-color .15s, background .15s; }
 .account-card:focus-within { position: relative; z-index: 2; }
 .account-card-header { display: flex; align-items: center; gap: 9px; }
@@ -111,6 +118,7 @@ h1, h2, h3 { letter-spacing: -.025em; }
 .appearance-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
 .appearance-options button { flex-direction: column; gap: 9px; padding: 15px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--canvas); color: var(--muted); font-size: 12px; }
 .appearance-options button[aria-pressed=true] { color: var(--primary); background: var(--accent-soft); border-color: var(--primary); }
+.card-size-options button { padding: 10px 5px; }
 .settings-action { display: flex; width: 100%; justify-content: flex-start; text-align: left; background: var(--canvas); color: var(--ink); padding: 15px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; gap: 13px; }
 .settings-action small { display: block; font-size: 10px; font-weight: 400; color: var(--muted); line-height: 1.8; margin-top: 4px; }
 .settings-action svg { color: var(--primary); flex-shrink: 0; }
@@ -140,7 +148,7 @@ h1, h2, h3 { letter-spacing: -.025em; }
   .add-account-button { margin-right: auto; }
   .workspace { padding: 24px 20px; }
   .workspace-header h1 { font-size: 24px; }
-  .account-grid { gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); }
+  .account-grid { --card-gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--card-width, 260px)), 1fr)); }
   .account-list-help { flex-wrap: wrap; gap: 7px; }
   .workspace-footer { align-items: flex-start; flex-direction: column; gap: 8px; }
   .toast { left: 50%; max-width: calc(100vw - 32px); font-size: 12px; }
@@ -238,6 +246,7 @@ progress { width: 100%; accent-color: var(--primary); }
 .device-unlock-action { margin: 22px 0 18px; }
 .device-unlock-action > button { width: 100%; justify-content: center; gap: 10px; }
 .device-unlock-action > p { text-align: center; font-size: 12px; margin-top: 14px; }
+.hello-setup-hint { margin-top: 16px; }
 .device-settings { display: flex; align-items: center; gap: 10px; margin: 10px 0; text-align: left; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }
 .modal { background: var(--surface); }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { check } from '@tauri-apps/plugin-updater';
 import { listen } from '@tauri-apps/api/event';
-import { Archive, ArrowDownToLine, Check, ChevronRight, Cloud, FolderKey, GripVertical, KeyRound, LayoutGrid, LockKeyhole, Moon, Plus, Search, Settings2, ShieldCheck, Sun, WifiOff } from 'lucide-react';
+import { Archive, ArrowDownToLine, Check, ChevronRight, Cloud, Fingerprint, FolderKey, GripVertical, KeyRound, LayoutGrid, LockKeyhole, Moon, Plus, Search, Settings2, ShieldCheck, Sun, WifiOff } from 'lucide-react';
 import { api, desktop, safeError } from './api';
 import type { AccountCode, AppInfo, VaultStatus, DeviceUnlockStatus } from './types';
 import { DeviceUnlock } from './components/DeviceUnlock';
@@ -282,12 +282,16 @@ export default function App() {
   if (!status.unlocked) return <main className="auth-shell">
     <section className="auth-intro"><Brand /><div><span className="auth-symbol"><FolderKey size={68} strokeWidth={1.2} /></span><h1>รหัสของคุณ<br />อยู่ใกล้แค่เปิดแอป</h1><p>ดูรหัส 2FA ได้จากคอมพิวเตอร์<br />พร้อมใช้งานแม้ไม่มีอินเทอร์เน็ต</p></div><span className="auth-footer"><ShieldCheck size={17} />เก็บข้อมูลแบบเข้ารหัสในเครื่อง</span></section>
     <section className="auth-content"><div className="auth-card"><span className="auth-lock"><LockKeyhole size={25} /></span><h2>{status.exists ? 'ปลดล็อกบัญชีของคุณ' : 'เริ่มเก็บรหัสไว้ในเครื่อง'}</h2><p className="muted">{status.exists ? 'ใส่รหัสผ่านหลักเพื่อดูรหัส 2FA ของคุณ' : 'ตั้งรหัสผ่านหลักเพื่อปกป้องคีย์ลับทุกบัญชี'}</p>
-      {status.exists && device.available && device.enabled && <div className="device-unlock-action"><button type="button" className="primary" disabled={busy} onClick={() => void authenticateDevice()}><LockKeyhole size={18} />ปลดล็อกด้วย {device.label}</button><p className="muted">หรือใช้รหัสผ่านหลักด้านล่าง</p></div>}
+      {status.exists && device.available && device.enabled && <div className="device-unlock-action"><button type="button" className="secondary" disabled={busy} onClick={() => void authenticateDevice()}><Fingerprint size={18} />ปลดล็อกด้วย {device.label}</button>{device.label === 'Windows Hello' && <p className="muted">ใช้ใบหน้า ลายนิ้วมือ หรือ PIN ที่ตั้งไว้ใน Windows</p>}</div>}
       <form onSubmit={authenticate}><label>รหัสผ่านหลัก<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={status.exists ? 'current-password' : 'new-password'} minLength={status.exists ? undefined : 6} maxLength={1024} required disabled={busy} autoFocus /></label>
         {!status.exists && <><label>ยืนยันรหัสผ่านหลัก<input type="password" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} autoComplete="new-password" minLength={6} maxLength={1024} required disabled={busy} /></label><p className="field-help">อย่างน้อย 6 ตัว ใช้ PIN ตัวเลขหรือรหัสผ่านก็ได้ เก็บรหัสนี้ไว้ให้ดี แอปไม่มีบริการรีเซ็ตรหัสผ่าน</p></>}
         {error && overlay !== 'import' && <p className="error" role="alert">{error}</p>}
         <button className="primary auth-submit" disabled={busy}>{busy ? 'กำลังเปิดคลังบัญชี…' : status.exists ? 'ปลดล็อก' : 'สร้างคลังบัญชี'}<ChevronRight size={18} /></button>
-      </form>{!info.mobile && <button className="text-button import-link" onClick={() => void chooseImport()} disabled={busy}><ArrowDownToLine size={16} />นำเข้าจากไฟล์สำรอง</button>}<p className="auth-version">MFA Desktop {info.version}</p>
+      </form>
+      {status.exists && device.label === 'Windows Hello' && !(device.enabled && device.available) && <p className="field-help hello-setup-hint">{device.available
+        ? 'หากต้องการใช้ใบหน้าหรือลายนิ้วมือ ให้ปลดล็อกด้วยรหัสผ่านหลัก แล้วไปที่ ตั้งค่า → ตั้งค่า Windows Hello'
+        : 'Windows Hello ยังไม่พร้อมใช้งาน ตรวจสอบ Settings → Accounts → Sign-in options ใน Windows แล้วเปิดแอปใหม่'}</p>}
+      {!info.mobile && <button className="text-button import-link" onClick={() => void chooseImport()} disabled={busy}><ArrowDownToLine size={16} />นำเข้าจากไฟล์สำรอง</button>}<p className="auth-version">MFA Desktop {info.version}</p>
     </div></section>{importDialog}
   </main>;
 
@@ -302,7 +306,7 @@ export default function App() {
     <main className="workspace"><header className="workspace-header"><div><h1>รหัส 2FA ของคุณ</h1><p className="muted">{query ? `${filtered.length} จาก ${accounts.length} บัญชี` : `${accounts.length} บัญชี · พร้อมใช้รหัสยืนยัน`}</p></div></header>
       {!desktop && <div className="preview-banner"><span>ตัวอย่างหน้าจอ</span>รหัสและบัญชีสมมติ · เพิ่มบัญชีจริงได้ในแอปที่ติดตั้งเท่านั้น</div>}
       {error && !deleting && overlay !== 'import' && <div className="error workspace-error" role="alert">{error}<button className="text-button" onClick={() => setError('')}>ปิด</button></div>}
-      <div className="account-list-help"><span>คลิกการ์ดเพื่อคัดลอกรหัส</span><span id="reorder-help"><GripVertical size={15} />ลากจุดจับเพื่อเรียงบัญชี <span className="visually-hidden">หรือโฟกัสจุดจับแล้วใช้ลูกศรเพื่อย้าย Home เพื่อย้ายบนสุด End เพื่อย้ายท้ายสุด</span></span></div><section className="account-grid" aria-label="บัญชี 2FA" aria-busy={moving}>
+      <div className="account-list-help"><span>คลิกการ์ดเพื่อคัดลอกรหัส</span><span id="reorder-help"><GripVertical size={15} />ลากจุดจับเพื่อเรียงบัญชี <span className="visually-hidden">หรือโฟกัสจุดจับแล้วใช้ลูกศรเพื่อย้าย Home เพื่อย้ายบนสุด End เพื่อย้ายท้ายสุด</span></span></div><section className="account-grid" data-card-size={appearance.cardSize} aria-label="บัญชี 2FA" aria-busy={moving}>
         {filtered.length ? filtered.map((account) => <AccountRow key={account.id} account={account} preview={!desktop} copied={copied === account.id} onCopy={() => void copy(account)} onDelete={() => setDeleting(account)} onExport={() => setExporting(account)} moving={moving} dragging={cardDrag.drag?.id === account.id} dropTarget={cardDrag.drag?.over === account.id && cardDrag.drag.id !== account.id} onDragStart={(event) => cardDrag.start(account.id, event)} onMoveTop={() => void persistOrder(moveAccount(accounts, accounts.map((item) => item.id), account.id, accounts[0].id))} onReorderKey={(event) => {
           const index = filtered.findIndex((item) => item.id === account.id);
           const destination = event.key === 'Home' ? 0 : event.key === 'End' ? filtered.length - 1 : ['ArrowUp', 'ArrowLeft'].includes(event.key) ? index - 1 : ['ArrowDown', 'ArrowRight'].includes(event.key) ? index + 1 : -1;
@@ -314,7 +318,7 @@ export default function App() {
       <footer className="workspace-footer"><span><WifiOff size={15} />สร้างรหัสได้แบบออฟไลน์</span><span>เวลาในเครื่องต้องตรง เพื่อให้รหัสใช้งานได้</span></footer>
       {notice && <div className="toast" role="status"><Check size={18} />{notice}</div>}
     </main></div>
-    {overlay === 'settings' && <Settings appearance={appearance.appearance} onAppearance={appearance.setAppearance} info={info} device={device} native={desktop} updateHint={updateHint} onClose={() => setOverlay(null)} onDevice={() => setOverlay('device')} onUpdates={() => setOverlay('updates')} />}
+    {overlay === 'settings' && <Settings appearance={appearance.appearance} onAppearance={appearance.setAppearance} cardSize={appearance.cardSize} onCardSize={appearance.setCardSize} info={info} device={device} native={desktop} updateHint={updateHint} onClose={() => setOverlay(null)} onDevice={() => setOverlay('device')} onUpdates={() => setOverlay('updates')} />}
     {overlay === 'backup' && <Backup enabled={desktop && !info.mobile} busy={busy} onClose={() => setOverlay(null)} onExport={() => void exportBackup()} onImport={() => void chooseImport()} />}
     {overlay === 'add' && <AddAccount onClose={() => setOverlay(null)} onSaved={(result, count) => { if (token === generation.current) { revision.current += 1; setAccounts(result); setSearch(''); setGoogleImportedCount(count ?? 0); setOverlay(count ? 'google-done' : null); notify(count ? `นำเข้าแล้ว ${count} บัญชี` : 'เพิ่มบัญชีแล้ว'); void sync.refresh(); } }} />}
     {overlay === 'google-done' && <GoogleImportResult count={googleImportedCount} status={sync.status} working={sync.working} syncError={sync.error} onClose={() => { setGoogleImportedCount(0); setOverlay(null); }} onSync={() => { setGoogleImportedCount(0); setOverlay(sync.status?.configured ? 'sync' : 'sync-create'); }} />}

@@ -17,8 +17,11 @@
 .camera-scanner { padding: 14px; border: 1px solid var(--border, #dce3ec); border-radius: 12px; background: var(--canvas); }
 .camera-frame { position: relative; overflow: hidden; aspect-ratio: 16 / 10; border-radius: 8px; background: #121923; }
 .camera-frame video { width: 100%; height: 100%; object-fit: contain; display: block; }
-.camera-guide { position: absolute; width: 58%; aspect-ratio: 1; max-height: 85%; border: 2px solid #fff; border-radius: 10px; inset: 0; margin: auto; box-shadow: 0 0 0 999px #0004; pointer-events: none; }
+.camera-guide { position: absolute; width: 50%; aspect-ratio: 1; border: 2px solid #fff; border-radius: 10px; inset: 0; margin: auto; box-shadow: 0 0 0 999px #0004; pointer-events: none; }
+.camera-picker { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 13px; }
+.camera-picker select { min-width: 0; flex: 1; padding: 8px; color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: 7px; }
+.camera-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .camera-error { padding: 12px; text-align: center; }
 .camera-error p { font-size: 14px; line-height: 1.7; }
-.camera-error + button { margin-top: 12px; }
+.camera-error + .camera-actions { margin-top: 12px; }
 @media (max-width: 480px) { .import-source-actions { gap: 8px; } .import-source { flex-direction: column; align-items: flex-start; padding: 12px; gap: 8px; } .import-uri-form { flex-direction: column; } .manual-identities { grid-template-columns: 1fr; } .import-entry-heading { flex-wrap: wrap; } }

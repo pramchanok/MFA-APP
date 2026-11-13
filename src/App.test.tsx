@@ -142,6 +142,28 @@ describe('vault interface', () => {
     expect(await screen.findByText('alice@example.com')).toBeVisible();
   });
 
+  it('shows where to enable Windows Hello before device enrollment', async () => {
+    vi.mocked(api.status).mockResolvedValue({ exists: true, unlocked: false });
+    vi.mocked(api.deviceStatus).mockResolvedValue({ available: true, enabled: false, label: 'Windows Hello' });
+    render(<App />);
+    expect(await screen.findByText(/ไปที่ ตั้งค่า → ตั้งค่า Windows Hello/)).toBeVisible();
+    expect(screen.getByLabelText('รหัสผ่านหลัก')).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'ปลดล็อกด้วย Windows Hello' })).not.toBeInTheDocument();
+    expect(api.unlockDevice).not.toHaveBeenCalled();
+  });
+
+  it('defaults to compact cards and restores the selected size when reopened', async () => {
+    const user = userEvent.setup();
+    const view = render(<App />);
+    expect(await screen.findByRole('region', { name: 'บัญชี 2FA' })).toHaveAttribute('data-card-size', 'compact');
+    await user.click(screen.getByRole('button', { name: 'ตั้งค่า' }));
+    await user.click(screen.getByRole('button', { name: 'ใหญ่' }));
+    expect(screen.getByRole('region', { name: 'บัญชี 2FA' })).toHaveAttribute('data-card-size', 'large');
+    view.unmount();
+    render(<App />);
+    expect(await screen.findByRole('region', { name: 'บัญชี 2FA' })).toHaveAttribute('data-card-size', 'large');
+  });
+
   it.each(['Windows Hello', 'Touch ID'])('unlocks with %s only after a deliberate click', async (label) => {
     vi.mocked(api.status).mockResolvedValue({ exists: true, unlocked: false });
     vi.mocked(api.deviceStatus).mockResolvedValue({ available: true, enabled: true, label });
@@ -347,7 +369,11 @@ describe('vault interface', () => {
     const syncProfile = { configured: true, server: 'https://sync.example.invalid', vaultId: 'test', pending: 0, lastSync: null };
     vi.mocked(api.syncStatus).mockResolvedValue(syncProfile);
     vi.mocked(api.syncOnce).mockResolvedValue({ changed: false, status: syncProfile });
-    vi.mocked(api.add).mockResolvedValue([account, { ...account, id: '2', issuer: 'Example', account: 'test@example.invalid' }]);
+    const savedAccounts = [account, { ...account, id: '2', issuer: 'Example', account: 'test@example.invalid' }];
+    vi.mocked(api.add).mockImplementation(async () => {
+      vi.mocked(api.codes).mockResolvedValue(savedAccounts);
+      return savedAccounts;
+    });
     const user = userEvent.setup(); render(<App />); await screen.findByText('alice@example.com');
     await waitFor(() => expect(api.syncOnce).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole('button', { name: 'เพิ่ม / นำเข้าบัญชี' }));
