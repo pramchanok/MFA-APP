@@ -16,6 +16,14 @@ Workflow ตรวจเวอร์ชัน ทดสอบ frontend/Rust แ�
 
 ## Signed release สำหรับ OTA และ macOS signing
 
+สำหรับ **Windows x64** มี workflow **Build signed Windows update** (`build-windows-update.yml`) ที่ใช้ secrets `MFA_UPDATER_PUBLIC_KEY` และ `TAURI_SIGNING_PRIVATE_KEY` รวมถึง `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` หากตั้งรหัสผ่านคีย์ Workflow ทดสอบแล้วสร้าง `.exe` และ `.exe.sig` ใน artifact `windows-x64-signed-update` โดยใช้คีย์ชุดเดิมสำหรับทุกเวอร์ชันในช่องทางนี้
+
+เผยแพร่ตัวติดตั้งที่ตรวจลายเซ็นแล้วใน [MFA Desktop Windows Releases](https://github.com/pramchanok/MFA-Desktop-Releases/releases) พร้อม `latest.json` ตาม [รูปแบบ Tauri static JSON](https://v2.tauri.app/plugin/updater/#static-json-file) ระบุเวอร์ชันและ `platforms.windows-x86_64` โดยใส่ URL ดาวน์โหลด `.exe` ของ release นั้น และเนื้อหา `.exe.sig` ใน `signature` อัปโหลดให้ครบใน draft ก่อนเผยแพร่และตั้งเป็น Latest จากนั้นตรวจว่า URL `releases/latest/download/latest.json` และ URL ตัวติดตั้งเปิดได้โดยไม่ต้องล็อกอิน
+
+ผู้ใช้ v0.5.2 หรือต่ำกว่าต้องติดตั้ง v0.5.3 หรือรุ่นใหม่กว่าจากช่องทางนี้ด้วยตนเองหนึ่งครั้ง หลังจากนั้นแอปตรวจเวอร์ชันใหม่และให้ผู้ใช้กดยืนยันติดตั้งในเมนู **ตั้งค่า → อัปเดตแอป**
+
+สำหรับการออกรีลีสแบบลงนามครบทั้ง Windows และ macOS ให้ใช้ขั้นตอนด้านล่าง
+
 เลือก **Build and publish signed release** (`release.yml`) หลังตั้ง **Settings → Secrets and variables → Actions → Repository secrets**:
 
 | Secret | ค่า |
