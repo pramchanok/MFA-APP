@@ -1,9 +1,8 @@
-import jsQR from 'jsqr';
-
 // Decode entirely on this device; never upload the QR or log its contents.
 export async function readQr(file: File): Promise<string> {
   if (file.size > 8 * 1024 * 1024) throw new Error('เลือกรูปขนาดไม่เกิน 8 MB');
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) throw new Error('รองรับรูป PNG, JPG และ WebP');
+  const { default: jsQR } = await import('jsqr');
   const bitmap = await createImageBitmap(file);
   try {
     if (bitmap.width > 4096 || bitmap.height > 4096) throw new Error('รูปใหญ่เกินไป กรุณาครอปเฉพาะ QR Code ก่อน');

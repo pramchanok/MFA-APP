@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import jsQR from 'jsqr';
 import { CameraOff } from 'lucide-react';
 
 type FocusMode = 'continuous' | 'single-shot';
@@ -85,6 +84,8 @@ export function CameraScanner({ onRead, onClose }: { onRead: (uri: string) => vo
           setCanControlFocus(true);
           void setCameraFocus(track, 'single-shot').then(() => { if (active) setFocusTrack(track); });
         }
+        const { default: jsQR } = await import('jsqr');
+        if (!active) return;
         const context = canvas.getContext('2d', { willReadFrequently: true });
         if (!context) throw new Error('unavailable');
         let scanCenter = true;

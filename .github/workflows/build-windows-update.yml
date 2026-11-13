@@ -1,4 +1,4 @@
-name: Build signed Windows update
+name: Build signed desktop updates
 
 on:
   workflow_dispatch:
@@ -12,7 +12,31 @@ concurrency:
 
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+            artifact: windows-x64-signed-update
+            installer: nsis/*.exe
+            signature: nsis/*.exe.sig
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+            artifact: macos-arm64-signed-update
+            installer: dmg/*.dmg
+            update: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz
+            signature: macos/*.app.tar.gz.sig
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+            artifact: macos-x64-signed-update
+            installer: dmg/*.dmg
+            update: src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz
+            signature: macos/*.app.tar.gz.sig
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,8 +45,8 @@ jobs:
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: '1.99.1'
-          targets: x86_64-pc-windows-msvc
+          toolchain: ${{ runner.os == 'Windows' && '1.99.1' || 'stable' }}
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
@@ -37,15 +61,30 @@ jobs:
           MFA_UPDATER_PUBLIC_KEY: ${{ secrets.MFA_UPDATER_PUBLIC_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && '-' || '' }}
+          BUILD_TARGET: ${{ matrix.target }}
+          BUILD_BUNDLES: ${{ matrix.bundles }}
         run: |
           if (!$env:TAURI_SIGNING_PRIVATE_KEY) { throw 'Missing TAURI_SIGNING_PRIVATE_KEY' }
           node scripts/prepare-release.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run tauri -- build --target x86_64-pc-windows-msvc --bundles nsis --config src-tauri/tauri.release.conf.json --ci
+          npm run tauri -- build --target $env:BUILD_TARGET --bundles $env:BUILD_BUNDLES --config src-tauri/tauri.release.conf.json --ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify macOS executable and ad hoc signature
+        if: runner.os == 'macOS'
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          bundle="src-tauri/target/$BUILD_TARGET/release/bundle/macos/MFA Desktop.app"
+          codesign --verify --deep --strict "$bundle"
+          expected="${BUILD_TARGET%%-*}"
+          if [ "$expected" = aarch64 ]; then expected=arm64; fi
+          test "$(lipo -archs "$bundle/Contents/MacOS/mfa-desktop")" = "$expected"
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-x64-signed-update
+          name: ${{ matrix.artifact }}
           path: |
-            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
-            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe.sig
+            src-tauri/target/${{ matrix.target }}/release/bundle/${{ matrix.installer }}
+            ${{ matrix.update }}
+            src-tauri/target/${{ matrix.target }}/release/bundle/${{ matrix.signature }}
           if-no-files-found: error

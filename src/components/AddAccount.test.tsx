@@ -40,7 +40,7 @@ it('detects Google export automatically and requires all parts before explicit i
   fireEvent.click(within(review).getByRole('button', { name: 'สแกน QR รูปถัดไป' }));
   fireEvent.click(screen.getByRole('button', { name: 'ทดสอบอ่าน QR ส่วนที่สอง' }));
   await screen.findByText('bob@example.invalid');
-  expect(screen.getByText('อ่านครบแล้ว 2 / 2 QR')).toHaveFocus();
+  await waitFor(() => expect(screen.getByText('อ่านครบแล้ว 2 / 2 QR')).toHaveFocus());
   expect(api.importGoogle).not.toHaveBeenCalled();
   expect(screen.getAllByRole('checkbox')[0]).not.toBeChecked();
   fireEvent.click(screen.getByRole('button', { name: 'นำเข้า 1 บัญชี' }));

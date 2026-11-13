@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { api } from './api';
@@ -165,28 +166,50 @@ describe('vault interface', () => {
     expect(await screen.findByRole('region', { name: 'บัญชี 2FA' })).toHaveAttribute('data-card-size', 'large');
   });
 
-  it.each(['Windows Hello', 'Touch ID'])('unlocks with %s only after a deliberate click', async (label) => {
+  it.each(['Windows Hello', 'Touch ID'])('requests %s once when the app first gains focus', async (label) => {
     vi.mocked(api.status).mockResolvedValue({ exists: true, unlocked: false });
     vi.mocked(api.deviceStatus).mockResolvedValue({ available: true, enabled: true, label });
     vi.mocked(api.unlockDevice).mockResolvedValue([account]);
-    const user = userEvent.setup(); render(<App />);
-    const button = await screen.findByRole('button', { name: `ปลดล็อกด้วย ${label}` });
+    const focus = vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+    const user = userEvent.setup(); render(<StrictMode><App /></StrictMode>);
+    await screen.findByRole('button', { name: `ปลดล็อกด้วย ${label}` });
     expect(api.unlockDevice).not.toHaveBeenCalled();
     expect(screen.getByLabelText('รหัสผ่านหลัก')).toBeVisible();
-    await user.click(button);
+    focus.mockReturnValue(true);
+    fireEvent.focus(window);
+    fireEvent.focus(window);
     expect(await screen.findByText('alice@example.com')).toBeVisible();
     expect(api.unlock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'ล็อกแอป' }));
+    await screen.findByLabelText('รหัสผ่านหลัก');
+    fireEvent.focus(window);
+    expect(api.unlockDevice).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the vault locked after device cancellation and lets the user enter a password', async () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     vi.mocked(api.status).mockResolvedValue({ exists: true, unlocked: false });
     vi.mocked(api.deviceStatus).mockResolvedValue({ available: true, enabled: true, label: 'Windows Hello' });
     vi.mocked(api.unlockDevice).mockRejectedValue('ยกเลิกการยืนยัน ใช้รหัสผ่านหลักได้');
-    const user = userEvent.setup(); render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'ปลดล็อกด้วย Windows Hello' }));
+    render(<App />);
     expect(await screen.findByRole('alert')).toHaveTextContent('ใช้รหัสผ่านหลักได้');
     expect(screen.getByLabelText('รหัสผ่านหลัก')).toBeEnabled();
     expect(screen.queryByText('alice@example.com')).not.toBeInTheDocument();
+    fireEvent.focus(window);
+    expect(api.unlockDevice).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the password entry uninterrupted when device status arrives late', async () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    vi.mocked(api.status).mockResolvedValue({ exists: true, unlocked: false });
+    let finish!: (result: Awaited<ReturnType<typeof api.deviceStatus>>) => void;
+    vi.mocked(api.deviceStatus).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    render(<App />);
+    const password = await screen.findByLabelText('รหัสผ่านหลัก');
+    fireEvent.change(password, { target: { value: 'synthetic password' } });
+    await act(async () => { finish({ available: true, enabled: true, label: 'Windows Hello' }); });
+    expect(api.unlockDevice).not.toHaveBeenCalled();
+    expect(password).toHaveValue('synthetic password');
   });
 
   it('requires a fresh password to enable Hello and purges it before waiting for the OS', async () => {

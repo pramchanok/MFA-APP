@@ -35,6 +35,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const [devicePromptOpen, setDevicePromptOpen] = useState(false);
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [googleImportedCount, setGoogleImportedCount] = useState(0);
   const [deleting, setDeleting] = useState<AccountCode | null>(null);
@@ -48,6 +49,7 @@ export default function App() {
   const [moving, setMoving] = useState(false);
   const savingOrder = useRef(false);
   const generation = useRef(0);
+  const startupUnlockPending = useRef(true);
   const revision = useRef(0);
   const lastActivity = useRef(Date.now());
   const lastNativeTouch = useRef(0);
@@ -70,11 +72,13 @@ export default function App() {
   }, []);
 
   const clearSensitiveUi = useCallback(() => {
+    startupUnlockPending.current = false;
     generation.current += 1;
     setAccounts([]); setPassword(''); setConfirmation(''); setImportPassword('');
     setOverlay(null); setDeleting(null); setExporting(null); setCopied(null); setNotice(''); setSearch('');
     setGoogleImportedCount(0);
     setImportPath(''); setReplaceConfirmed(false); setBusy(false);
+    setDevicePromptOpen(false);
     savingOrder.current = false; setMoving(false);
   }, []);
 
@@ -106,6 +110,7 @@ export default function App() {
     setError('');
     Promise.all([api.status(), api.info()]).then(async ([current, app]) => {
       if (!active || token !== generation.current) return;
+      if (!current.exists || current.unlocked) startupUnlockPending.current = false;
       setStatus(current); setInfo(app);
       if (current.unlocked) {
         const currentRevision = revision.current;
@@ -155,19 +160,20 @@ export default function App() {
   }, [status?.unlocked, lock]);
 
   useEffect(() => {
-    if (!desktop || info.mobile || !info.updaterConfigured) return;
+    if (!desktop || !status?.unlocked || info.mobile || !info.updaterConfigured) return;
     let active = true;
     check().then(async (update) => {
       if (active) setUpdateHint(update ? `มีเวอร์ชัน ${update.version}` : 'เวอร์ชันล่าสุด');
       await update?.close();
     }).catch(() => { if (active) setUpdateHint('ยังตรวจอัปเดตไม่ได้'); });
     return () => { active = false; };
-  }, [info.updaterConfigured, info.mobile]);
+  }, [status?.unlocked, info.updaterConfigured, info.mobile]);
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
 
   async function authenticate(e: FormEvent) {
     e.preventDefault(); setError('');
-    if (!status) return;
+    if (!status || busy) return;
+    startupUnlockPending.current = false;
     if (!status.exists && Array.from(password).length < 6) { setError('ตั้งรหัสผ่านอย่างน้อย 6 ตัวอักษร'); return; }
     if (!status.exists && password !== confirmation) { setError('รหัสผ่านทั้งสองช่องไม่ตรงกัน'); return; }
     const token = ++generation.current;
@@ -181,18 +187,32 @@ export default function App() {
     finally { if (token === generation.current) setBusy(false); }
   }
 
-  async function authenticateDevice() {
+  const authenticateDevice = useCallback(async () => {
+    startupUnlockPending.current = false;
     const token = ++generation.current;
-    setBusy(true); setError(''); setPassword('');
+    setBusy(true); setDevicePromptOpen(true); setError(''); setPassword('');
     try {
       const result = await api.unlockDevice();
       if (token !== generation.current) return;
+      if (document.visibilityState === 'hidden') { await lock(); return; }
       setAccounts(result); lastActivity.current = Date.now();
       setStatus({ exists: true, unlocked: true });
     } catch (error) {
       if (token === generation.current) setError(safeError(error));
-    } finally { if (token === generation.current) setBusy(false); }
-  }
+    } finally { if (token === generation.current) { setBusy(false); setDevicePromptOpen(false); } }
+  }, [lock]);
+
+  useEffect(() => {
+    if (!desktop || info.mobile || !status?.exists || status.unlocked || !device.available || !device.enabled || busy || overlay) return;
+    const prompt = () => {
+      if (!startupUnlockPending.current || document.visibilityState !== 'visible' || !document.hasFocus()) return;
+      void authenticateDevice();
+    };
+    prompt();
+    window.addEventListener('focus', prompt);
+    document.addEventListener('visibilitychange', prompt);
+    return () => { window.removeEventListener('focus', prompt); document.removeEventListener('visibilitychange', prompt); };
+  }, [status, device, info.mobile, busy, overlay, authenticateDevice]);
 
   async function copy(account: AccountCode) {
     const token = generation.current;
@@ -225,6 +245,7 @@ export default function App() {
   }
 
   async function chooseImport() {
+    startupUnlockPending.current = false;
     const token = generation.current; setError('');
     try {
       const path = await open({ title: 'เลือกไฟล์สำรองที่เข้ารหัส', multiple: false, directory: false, filters: [{ name: 'MFA encrypted backup', extensions: ['mfa-backup'] }] });
@@ -282,8 +303,8 @@ export default function App() {
   if (!status.unlocked) return <main className="auth-shell">
     <section className="auth-intro"><Brand /><div><span className="auth-symbol"><FolderKey size={68} strokeWidth={1.2} /></span><h1>รหัสของคุณ<br />อยู่ใกล้แค่เปิดแอป</h1><p>ดูรหัส 2FA ได้จากคอมพิวเตอร์<br />พร้อมใช้งานแม้ไม่มีอินเทอร์เน็ต</p></div><span className="auth-footer"><ShieldCheck size={17} />เก็บข้อมูลแบบเข้ารหัสในเครื่อง</span></section>
     <section className="auth-content"><div className="auth-card"><span className="auth-lock"><LockKeyhole size={25} /></span><h2>{status.exists ? 'ปลดล็อกบัญชีของคุณ' : 'เริ่มเก็บรหัสไว้ในเครื่อง'}</h2><p className="muted">{status.exists ? 'ใส่รหัสผ่านหลักเพื่อดูรหัส 2FA ของคุณ' : 'ตั้งรหัสผ่านหลักเพื่อปกป้องคีย์ลับทุกบัญชี'}</p>
-      {status.exists && device.available && device.enabled && <div className="device-unlock-action"><button type="button" className="secondary" disabled={busy} onClick={() => void authenticateDevice()}><Fingerprint size={18} />ปลดล็อกด้วย {device.label}</button>{device.label === 'Windows Hello' && <p className="muted">ใช้ใบหน้า ลายนิ้วมือ หรือ PIN ที่ตั้งไว้ใน Windows</p>}</div>}
-      <form onSubmit={authenticate}><label>รหัสผ่านหลัก<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={status.exists ? 'current-password' : 'new-password'} minLength={status.exists ? undefined : 6} maxLength={1024} required disabled={busy} autoFocus /></label>
+      {status.exists && device.available && device.enabled && <div className="device-unlock-action"><button type="button" className="secondary" disabled={busy} onClick={() => void authenticateDevice()}><Fingerprint size={18} />ปลดล็อกด้วย {device.label}</button>{devicePromptOpen ? <p className="muted" role="status">กำลังรอการยืนยันจาก {device.label}…</p> : device.label === 'Windows Hello' && <p className="muted">ใช้ใบหน้า ลายนิ้วมือ หรือ PIN ที่ตั้งไว้ใน Windows</p>}</div>}
+      <form onSubmit={authenticate}><label>รหัสผ่านหลัก<input type="password" value={password} onChange={(e) => { startupUnlockPending.current = false; setPassword(e.target.value); }} autoComplete={status.exists ? 'current-password' : 'new-password'} minLength={status.exists ? undefined : 6} maxLength={1024} required disabled={busy} autoFocus /></label>
         {!status.exists && <><label>ยืนยันรหัสผ่านหลัก<input type="password" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} autoComplete="new-password" minLength={6} maxLength={1024} required disabled={busy} /></label><p className="field-help">อย่างน้อย 6 ตัว ใช้ PIN ตัวเลขหรือรหัสผ่านก็ได้ เก็บรหัสนี้ไว้ให้ดี แอปไม่มีบริการรีเซ็ตรหัสผ่าน</p></>}
         {error && overlay !== 'import' && <p className="error" role="alert">{error}</p>}
         <button className="primary auth-submit" disabled={busy}>{busy ? 'กำลังเปิดคลังบัญชี…' : status.exists ? 'ปลดล็อก' : 'สร้างคลังบัญชี'}<ChevronRight size={18} /></button>

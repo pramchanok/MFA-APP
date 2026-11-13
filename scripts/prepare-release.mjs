@@ -29,7 +29,11 @@ if (endpoint) {
   }
   releaseConfig.plugins.updater.endpoints = [url.href];
 }
-if (process.platform === 'darwin') {
+if (process.platform === 'darwin' && process.env.APPLE_SIGNING_IDENTITY === '-') {
+  // Ad hoc builds still carry Tauri updater signatures. Apple Developer ID
+  // entitlements and Touch ID require the provisioned build below.
+  releaseConfig.bundle.macOS = { signingIdentity: '-' };
+} else if (process.platform === 'darwin') {
   const team = process.env.APPLE_TEAM_ID?.trim();
   if (!/^[A-Z0-9]{10}$/.test(team ?? '')) {
     throw new Error('Set APPLE_TEAM_ID to the 10-character signing team ID for Touch ID Keychain access.');

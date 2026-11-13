@@ -16,9 +16,9 @@ Workflow ตรวจเวอร์ชัน ทดสอบ frontend/Rust แ�
 
 ## Signed release สำหรับ OTA และ macOS signing
 
-สำหรับ **Windows x64** มี workflow **Build signed Windows update** (`build-windows-update.yml`) ที่ใช้ secrets `MFA_UPDATER_PUBLIC_KEY` และ `TAURI_SIGNING_PRIVATE_KEY` รวมถึง `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` หากตั้งรหัสผ่านคีย์ Workflow ทดสอบแล้วสร้าง `.exe` และ `.exe.sig` ใน artifact `windows-x64-signed-update` โดยใช้คีย์ชุดเดิมสำหรับทุกเวอร์ชันในช่องทางนี้
+Workflow **Build signed desktop updates** (`build-windows-update.yml`) ใช้คีย์ Tauri ชุดเดิมจาก secrets `MFA_UPDATER_PUBLIC_KEY` และ `TAURI_SIGNING_PRIVATE_KEY` รวมถึง `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` หากตั้งรหัสผ่านคีย์ Workflow สร้าง `.exe` สำหรับ Windows x64, `.dmg` สำหรับ macOS Apple Silicon และ Intel พร้อมไฟล์อัปเดตและลายเซ็นของแต่ละแพลตฟอร์ม macOS ใช้ลายเซ็น ad hoc จึงอาจต้องยืนยันใน System Settings เมื่อเปิดครั้งแรก และต้องใช้รหัสผ่านหลักในการปลดล็อก
 
-เผยแพร่ตัวติดตั้งที่ตรวจลายเซ็นแล้วใน [MFA Desktop Windows Releases](https://github.com/pramchanok/MFA-Desktop-Releases/releases) พร้อม `latest.json` ตาม [รูปแบบ Tauri static JSON](https://v2.tauri.app/plugin/updater/#static-json-file) ระบุเวอร์ชันและ `platforms.windows-x86_64` โดยใส่ URL ดาวน์โหลด `.exe` ของ release นั้น และเนื้อหา `.exe.sig` ใน `signature` อัปโหลดให้ครบใน draft ก่อนเผยแพร่และตั้งเป็น Latest จากนั้นตรวจว่า URL `releases/latest/download/latest.json` และ URL ตัวติดตั้งเปิดได้โดยไม่ต้องล็อกอิน
+เผยแพร่ใน [MFA Desktop Releases](https://github.com/pramchanok/MFA-Desktop-Releases/releases) พร้อม `latest.json` ตาม [รูปแบบ Tauri static JSON](https://v2.tauri.app/plugin/updater/#static-json-file) ระบุเวอร์ชันและรายการ `windows-x86_64`, `darwin-aarch64` และ `darwin-x86_64` ใน `platforms` ใช้ URL ดาวน์โหลด `.exe` สำหรับ Windows หรือ `.app.tar.gz` สำหรับ macOS และใส่เนื้อหา `.sig` ของไฟล์นั้นใน `signature` อัปโหลดไฟล์ให้ครบใน draft ก่อนเผยแพร่และตั้งเป็น Latest จากนั้นตรวจ manifest ลายเซ็น และ URL ดาวน์โหลดของทุกแพลตฟอร์มโดยไม่ล็อกอิน
 
 ผู้ใช้ v0.5.2 หรือต่ำกว่าต้องติดตั้ง v0.5.3 หรือรุ่นใหม่กว่าจากช่องทางนี้ด้วยตนเองหนึ่งครั้ง หลังจากนั้นแอปตรวจเวอร์ชันใหม่และให้ผู้ใช้กดยืนยันติดตั้งในเมนู **ตั้งค่า → อัปเดตแอป**
 
