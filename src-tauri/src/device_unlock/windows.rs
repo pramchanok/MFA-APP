@@ -18,6 +18,27 @@ use windows::{
 };
 
 struct Cng(NCRYPT_HANDLE);
+
+const RSA_CIPHERTEXT_SIZE: usize = 256;
+const PASSPORT_PKCS1: u8 = 1;
+
+#[derive(Clone, Copy)]
+enum RsaPadding {
+    OaepSha256,
+    Pkcs1,
+}
+
+fn wrapped_key(sealed: &[u8]) -> Result<(RsaPadding, &[u8])> {
+    match sealed {
+        // Earlier Windows enrollments have an untagged OAEP ciphertext.
+        bytes if bytes.len() == RSA_CIPHERTEXT_SIZE => Ok((RsaPadding::OaepSha256, bytes)),
+        [PASSPORT_PKCS1, bytes @ ..] if bytes.len() == RSA_CIPHERTEXT_SIZE => {
+            Ok((RsaPadding::Pkcs1, bytes))
+        }
+        _ => Err(INVALID.into()),
+    }
+}
+
 fn native_failure(operation: &str, error: windows::core::Error) -> String {
     #[cfg(debug_assertions)]
     eprintln!(
@@ -155,7 +176,7 @@ fn open(id: &str) -> Result<Cng> {
 
 // Public-key encryption does not require Passport's private-key provider. Only
 // the public RSA blob leaves the provider; decryption remains Hello-protected.
-fn encrypt_public_key(key: &Cng, input: &[u8]) -> Result<Vec<u8>> {
+fn encrypt_public_key(key: &Cng, input: &[u8], padding: RsaPadding) -> Result<Vec<u8>> {
     struct Algorithm(BCRYPT_ALG_HANDLE);
     impl Drop for Algorithm {
         fn drop(&mut self) {
@@ -221,27 +242,66 @@ fn encrypt_public_key(key: &Cng, input: &[u8]) -> Result<Vec<u8>> {
         .ok()
         .map_err(|_| INVALID.to_string())?;
         let public = PublicKey(public);
-        let padding = BCRYPT_OAEP_PADDING_INFO {
+        let oaep = BCRYPT_OAEP_PADDING_INFO {
             pszAlgId: BCRYPT_SHA256_ALGORITHM,
             ..Default::default()
         };
-        let mut sealed = vec![0; 256];
+        let (info, flags) = match padding {
+            RsaPadding::OaepSha256 => (
+                Some((&oaep as *const BCRYPT_OAEP_PADDING_INFO).cast()),
+                BCRYPT_PAD_OAEP,
+            ),
+            RsaPadding::Pkcs1 => (None, BCRYPT_PAD_PKCS1),
+        };
+        let mut sealed = vec![0; RSA_CIPHERTEXT_SIZE];
         BCryptEncrypt(
             public.0,
             Some(input),
-            Some((&padding as *const BCRYPT_OAEP_PADDING_INFO).cast()),
+            info,
             None,
             Some(&mut sealed),
             &mut count,
-            BCRYPT_PAD_OAEP,
+            flags,
         )
         .ok()
         .map_err(|error| native_failure("encrypt public key", error))?;
-        if count != 256 {
+        if count as usize != RSA_CIPHERTEXT_SIZE {
             return Err(INVALID.into());
         }
         Ok(sealed)
     }
+}
+
+fn decrypt_key(
+    key: &Cng,
+    ciphertext: &[u8],
+    padding: RsaPadding,
+) -> windows::core::Result<Zeroizing<Vec<u8>>> {
+    let mut bytes = Zeroizing::new(vec![0; RSA_CIPHERTEXT_SIZE]);
+    let mut count = 0;
+    let oaep = BCRYPT_OAEP_PADDING_INFO {
+        pszAlgId: BCRYPT_SHA256_ALGORITHM,
+        ..Default::default()
+    };
+    let (info, flags) = match padding {
+        RsaPadding::OaepSha256 => (
+            Some((&oaep as *const BCRYPT_OAEP_PADDING_INFO).cast()),
+            NCRYPT_PAD_OAEP_FLAG,
+        ),
+        RsaPadding::Pkcs1 => (None, NCRYPT_PAD_PKCS1_FLAG),
+    };
+    unsafe {
+        NCryptDecrypt(
+            key.key(),
+            Some(ciphertext),
+            info,
+            Some(&mut bytes),
+            &mut count,
+            flags,
+        )
+    }?;
+    bytes.truncate(count as usize);
+    Ok(bytes)
 }
 
 impl Protector for NativeProtector {
@@ -301,7 +361,13 @@ impl Protector for NativeProtector {
             unsafe { NCryptFinalizeKey(key.key(), NCRYPT_FLAGS(0)) }
                 .map_err(|error| native_failure("finalize Hello key", error))?;
             key.verify()?;
-            encrypt_public_key(&key, key_bytes)
+            // Passport KSP can reject OAEP decryption with NTE_INVALID_PARAMETER.
+            // Use its supported padding for newly created local enrollment keys.
+            let ciphertext = encrypt_public_key(&key, key_bytes, RsaPadding::Pkcs1)?;
+            let mut sealed = Vec::with_capacity(1 + RSA_CIPHERTEXT_SIZE);
+            sealed.push(PASSPORT_PKCS1);
+            sealed.extend(ciphertext);
+            Ok(sealed)
         })();
         if result.is_err() {
             // Delete consumes the handle on success.
@@ -313,9 +379,7 @@ impl Protector for NativeProtector {
     }
 
     fn unseal(&self, id: &str, sealed: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
-        if sealed.len() != 256 {
-            return Err(INVALID.into());
-        }
+        let (padding, ciphertext) = wrapped_key(sealed)?;
         let key = open(id)?;
         key.verify()?;
         key.context(self.window)?;
@@ -323,28 +387,12 @@ impl Protector for NativeProtector {
             NCRYPT_PIN_CACHE_IS_GESTURE_REQUIRED_PROPERTY,
             &1u32.to_le_bytes(),
         )?;
-        let mut bytes = Zeroizing::new(vec![0; 256]);
-        let mut count = 0;
-        let padding = BCRYPT_OAEP_PADDING_INFO {
-            pszAlgId: BCRYPT_SHA256_ALGORITHM,
-            ..Default::default()
-        };
         let _prompt = hello_prompt::HelloPrompt::start(self.window);
-        unsafe {
-            NCryptDecrypt(
-                key.key(),
-                Some(sealed),
-                Some((&padding as *const BCRYPT_OAEP_PADDING_INFO).cast()),
-                Some(&mut bytes),
-                &mut count,
-                NCRYPT_PAD_OAEP_FLAG,
-            )
-        }
-        .map_err(|error| native_failure("Hello decrypt", error))?;
-        if count != 32 {
+        let bytes = decrypt_key(&key, ciphertext, padding)
+            .map_err(|error| native_failure("Hello decrypt", error))?;
+        if bytes.len() != 32 {
             return Err(INVALID.into());
         }
-        bytes.truncate(32);
         Ok(bytes)
     }
 
@@ -378,7 +426,7 @@ impl Protector for NativeProtector {
 mod tests {
     use super::*;
     #[test]
-    fn public_blob_encryption_preserves_oaep_sha256_and_roundtrips() {
+    fn public_blob_encryption_roundtrips_legacy_and_passport_padding() {
         unsafe {
             // An unnamed software test key is never persisted and never used by
             // production enrollment. No biometric prompt or user data is needed.
@@ -402,39 +450,25 @@ mod tests {
                 .unwrap();
             NCryptFinalizeKey(key.key(), NCRYPT_FLAGS(0)).unwrap();
             let input = [0x42; 32];
-            let sealed = encrypt_public_key(&key, &input).unwrap();
-            assert_eq!(sealed.len(), 256);
-            assert_ne!(sealed, encrypt_public_key(&key, &input).unwrap());
-            let padding = BCRYPT_OAEP_PADDING_INFO {
-                pszAlgId: BCRYPT_SHA256_ALGORITHM,
-                ..Default::default()
-            };
-            let mut output = Zeroizing::new(vec![0; 256]);
-            let mut count = 0;
-            NCryptDecrypt(
-                key.key(),
-                Some(&sealed),
-                Some((&padding as *const BCRYPT_OAEP_PADDING_INFO).cast()),
-                Some(&mut output),
-                &mut count,
-                NCRYPT_PAD_OAEP_FLAG,
-            )
-            .unwrap();
-            assert_eq!(count, 32);
-            assert_eq!(&output[..count as usize], input);
-            let wrong_padding = BCRYPT_OAEP_PADDING_INFO {
-                pszAlgId: BCRYPT_SHA1_ALGORITHM,
-                ..Default::default()
-            };
-            assert!(NCryptDecrypt(
-                key.key(),
-                Some(&sealed),
-                Some((&wrong_padding as *const BCRYPT_OAEP_PADDING_INFO).cast()),
-                Some(&mut output),
-                &mut count,
-                NCRYPT_PAD_OAEP_FLAG
-            )
-            .is_err());
+            let legacy = encrypt_public_key(&key, &input, RsaPadding::OaepSha256).unwrap();
+            let pkcs1 = encrypt_public_key(&key, &input, RsaPadding::Pkcs1).unwrap();
+            assert_ne!(
+                pkcs1,
+                encrypt_public_key(&key, &input, RsaPadding::Pkcs1).unwrap()
+            );
+            let mut tagged = vec![PASSPORT_PKCS1];
+            tagged.extend(&pkcs1);
+            for sealed in [&legacy, &tagged] {
+                let (padding, ciphertext) = wrapped_key(sealed).unwrap();
+                assert_eq!(
+                    decrypt_key(&key, ciphertext, padding).unwrap().as_slice(),
+                    input
+                );
+            }
+            assert!(decrypt_key(&key, &legacy, RsaPadding::Pkcs1).is_err());
+            assert!(decrypt_key(&key, &pkcs1, RsaPadding::OaepSha256).is_err());
+            tagged[0] = 0;
+            assert!(wrapped_key(&tagged).is_err());
         }
     }
     #[test]

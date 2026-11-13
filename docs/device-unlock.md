@@ -15,7 +15,7 @@
 
 รหัสผ่านหลักและรูปแบบคลัง Stronghold เดิมไม่เปลี่ยน Native backend ขอรหัสผ่านใหม่เพื่อพิสูจน์ว่าถอดคลังปัจจุบันได้ แล้วส่งเฉพาะกุญแจที่ได้ไปเก็บกับ OS ไม่มีรหัสผ่านหรือกุญแจส่งกลับ UI และไม่มีการเก็บใน browser storage
 
-- Windows: สร้าง RSA key แยกแต่ละการเปิดใช้ใน Microsoft Passport Key Storage Provider รุ่น 0.4.2 ส่งออกเฉพาะ public key มาเข้ารหัสด้วย BCrypt RSA-OAEP/SHA-256 ส่วน private key อยู่กับ Windows Hello ตรวจ key usage, export policy และ `NgcCacheType=1` ก่อนใช้ บังคับ fresh gesture ก่อนถอดรหัสด้วย `PinCacheIsGestureRequired` หาก API/policy ไม่รองรับจะปฏิเสธและให้ใช้รหัสผ่านหลัก ไม่มีการแทนที่ด้วย software KSP หรือ DPAPI หลังตรวจเพียง boolean
+- Windows: สร้าง RSA key แยกแต่ละการเปิดใช้ใน Microsoft Passport Key Storage Provider และใช้ BCrypt กับ public key เพื่อห่อกุญแจของคลัง การลงทะเบียนใหม่ใช้ RSA PKCS#1 v1.5 เพื่อให้เข้ากับ Passport KSP ที่ปฏิเสธ OAEP ส่วนข้อมูลลงทะเบียนเดิมยังอ่านด้วย RSA-OAEP/SHA-256 แอปตรวจ key usage, export policy และ `NgcCacheType=1` ก่อนถอดกุญแจ และตั้ง `PinCacheIsGestureRequired` ให้ Windows Hello ขอการยืนยันใหม่ หากการทดสอบถอดกุญแจตอนลงทะเบียนไม่ผ่าน ผู้ใช้ยังเข้าคลังด้วยรหัสผ่านหลักได้
 - macOS: ใช้ data-protection Keychain, `AccessibleWhenUnlockedThisDeviceOnly` และ `BIOMETRY_CURRENT_SET` ปิดการซิงค์ Keychain item ไป iCloud การเปลี่ยนชุดลายนิ้วมืออาจทำให้ต้องตั้งค่าใหม่
 - `vault.device-unlock` มี version, UUID, salt และ ciphertext เฉพาะ Windows ส่วน Mac มีเพียงข้อมูลอ้างอิง ไฟล์นี้ไม่รวมใน backup/sync, จำกัดขนาด และต้องผูกกับ salt ของคลังปัจจุบัน การนำเข้าคลังอื่นไม่เปิดใช้ enrollment เก่าให้คลังใหม่
 - หลังปิดใช้จะลบ OS key/item แล้วลบไฟล์อ้างอิง การเปิดใช้อีกครั้งทดสอบ protected read ก่อนบันทึกและล้าง key/item ใหม่เมื่อยืนยันไม่ผ่าน

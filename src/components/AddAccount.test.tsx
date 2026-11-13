@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AddAccount } from './AddAccount';
 import { api } from '../api';
@@ -7,7 +7,7 @@ import type { GoogleExportPreview } from '../types';
 
 vi.mock('../api', () => ({ desktop: true, safeError: (e: unknown) => e instanceof Error ? e.message : String(e), api: { add: vi.fn(), previewAccounts: vi.fn(), importAccounts: vi.fn(), previewGoogle: vi.fn(), importGoogle: vi.fn() } }));
 vi.mock('../qr', () => ({ readQr: vi.fn() }));
-vi.mock('./CameraScanner', () => ({ CameraScanner: ({ onRead, onClose }: { onRead: (uri: string) => void; onClose: () => void }) => <div><button onClick={() => onRead('otpauth://totp/Example:camera?secret=GEZDGNBV')}>ทดสอบอ่าน QR สังเคราะห์</button><button onClick={onClose}>ปิดกล้อง</button></div> }));
+vi.mock('./CameraScanner', () => ({ CameraScanner: ({ onRead, onClose }: { onRead: (uri: string) => void; onClose: () => void }) => <div><button onClick={() => onRead('otpauth://totp/Example:camera?secret=GEZDGNBV')}>ทดสอบอ่าน QR สังเคราะห์</button><button onClick={() => onRead('otpauth-migration://offline?data=SYNTHETIC-PART-2')}>ทดสอบอ่าน QR ส่วนที่สอง</button><button onClick={onClose}>ปิดกล้อง</button></div> }));
 const uri = 'otpauth://totp/Example:alice?secret=GEZDGNBV';
 const googleUri = 'otpauth-migration://offline?data=SYNTHETIC-TEST-ONLY';
 const entry = { index: 0, issuer: 'Example', account: 'alice@example.invalid', algorithm: 'SHA1', digits: 6, reason: null };
@@ -36,10 +36,28 @@ it('detects Google export automatically and requires all parts before explicit i
   expect(screen.getByRole('button', { name: 'นำเข้า 1 บัญชี' })).toBeDisabled();
   fireEvent.click(screen.getByRole('checkbox'));
   vi.mocked(api.previewGoogle).mockResolvedValue({ entries: [entry, { ...entry, index: 1, account: 'bob@example.invalid' }], parts: 2, expected: 2, complete: true });
-  await inspect(`${googleUri}-PART-2`); await screen.findByText('bob@example.invalid');
+  const review = screen.getByRole('region', { name: 'ตรวจบัญชีก่อนบันทึก' });
+  fireEvent.click(within(review).getByRole('button', { name: 'สแกน QR รูปถัดไป' }));
+  fireEvent.click(screen.getByRole('button', { name: 'ทดสอบอ่าน QR ส่วนที่สอง' }));
+  await screen.findByText('bob@example.invalid');
+  expect(screen.getByText('อ่านครบแล้ว 2 / 2 QR')).toHaveFocus();
+  expect(api.importGoogle).not.toHaveBeenCalled();
   expect(screen.getAllByRole('checkbox')[0]).not.toBeChecked();
   fireEvent.click(screen.getByRole('button', { name: 'นำเข้า 1 บัญชี' }));
-  await waitFor(() => expect(api.importGoogle).toHaveBeenCalledWith([googleUri, `${googleUri}-PART-2`], [1]));
+  await waitFor(() => expect(api.importGoogle).toHaveBeenCalledWith([googleUri, 'otpauth-migration://offline?data=SYNTHETIC-PART-2'], [1]));
+});
+
+it('keeps the import draft open on backdrop click and Escape until explicitly closed', async () => {
+  const onClose = vi.fn();
+  render(<AddAccount onClose={onClose} onSaved={saved} />);
+  await inspect();
+  const dialog = screen.getByRole('dialog');
+  fireEvent.mouseDown(dialog.parentElement!);
+  fireEvent.keyDown(dialog, { key: 'Escape' });
+  expect(onClose).not.toHaveBeenCalled();
+  expect(screen.getByText('alice@example.invalid')).toBeVisible();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'ปิดหน้าต่าง' }));
+  expect(onClose).toHaveBeenCalledOnce();
 });
 
 it('reads multiple standard QR images locally into a single reviewed selection', async () => {

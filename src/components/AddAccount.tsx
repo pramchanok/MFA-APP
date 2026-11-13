@@ -22,9 +22,19 @@ export function AddAccount({ onClose, onSaved }: { onClose: () => void; onSaved:
   const uris = useRef<string[]>([]);
   const kind = useRef<Kind | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const scanButton = useRef<HTMLButtonElement>(null);
+  const reviewHeading = useRef<HTMLHeadingElement>(null);
+  const cameraPanel = useRef<HTMLDivElement>(null);
+  const importError = useRef<HTMLParagraphElement>(null);
   const alive = useRef(true);
   const working = useRef(false);
   useEffect(() => { alive.current = true; return () => { alive.current = false; uris.current = []; }; }, []);
+  useEffect(() => {
+    if (!preview) return;
+    reviewHeading.current?.focus();
+  }, [preview]);
+  useEffect(() => { if (camera) cameraPanel.current?.focus(); }, [camera]);
+  useEffect(() => { if (error) importError.current?.focus(); }, [error]);
   const close = () => { alive.current = false; uris.current = []; setCamera(false); setInput({ ...emptyAccount }); setDraft(''); onClose(); };
   const update = <K extends keyof AccountInput>(key: K, value: AccountInput[K]) => setInput((old) => ({ ...old, [key]: value }));
   const setWorking = (value: boolean) => { working.current = value; setBusy(value); };
@@ -70,18 +80,23 @@ export function AddAccount({ onClose, onSaved }: { onClose: () => void; onSaved:
     finally { if (alive.current) setWorking(false); }
   }
 
-  function reset() { uris.current = []; kind.current = null; setPreview(null); setSelected([]); setDraft(''); setError(''); }
+  function reset() { uris.current = []; kind.current = null; setCamera(false); setPreview(null); setSelected([]); setDraft(''); setError(''); }
   function changeManual(next: boolean) { setCamera(false); setInput({ ...emptyAccount }); setDraft(''); setError(''); setManual(next); }
+  function openCamera() { changeManual(false); setCamera(true); }
+  function chooseQrImages() { changeManual(false); fileInput.current?.click(); }
+  const remainingParts = preview ? preview.expected - preview.parts : 0;
 
-  return <Modal title="เพิ่ม / นำเข้าบัญชี" onClose={close} busy={busy}>
+  return <Modal title="เพิ่ม / นำเข้าบัญชี" onClose={close} busy={busy} closeOnDismiss={false}>
     <p className="muted import-intro">ใช้ QR ตั้งค่า 2FA ของบริการต่าง ๆ หรือชุดส่งออกจาก Google Authenticator แอปตรวจรูปแบบให้เอง</p>
     {!desktop && <p className="notice">หน้าตัวอย่างเท่านั้น กรุณาเพิ่มบัญชีจริงในแอป Desktop</p>}
     <div className="import-source-actions">
-      <button type="button" className="import-source" disabled={busy || !desktop} onClick={() => { changeManual(false); setCamera(true); }}><Camera size={23} /><span><strong>สแกนด้วยกล้อง</strong><small>ส่อง QR บนมือถือได้เลย</small></span></button>
-      <button type="button" className="import-source" disabled={busy || !desktop} onClick={() => { changeManual(false); fileInput.current?.click(); }}><ImagePlus size={23} /><span><strong>เลือกรูป QR</strong><small>เลือกหลายรูปได้</small></span></button>
+      <button ref={scanButton} type="button" className="import-source" disabled={busy || !desktop} onClick={openCamera}><Camera size={23} /><span><strong>สแกนด้วยกล้อง</strong><small>ส่อง QR บนมือถือได้เลย</small></span></button>
+      <button type="button" className="import-source" disabled={busy || !desktop} onClick={chooseQrImages}><ImagePlus size={23} /><span><strong>เลือกรูป QR</strong><small>เลือกหลายรูปได้</small></span></button>
     </div>
     <input ref={fileInput} type="file" multiple accept="image/png,image/jpeg,image/webp" className="visually-hidden" tabIndex={-1} aria-label="รูป QR สำหรับเพิ่มบัญชี" disabled={busy || !desktop} onChange={(e) => { if (e.target.files?.length) void inspect(undefined, Array.from(e.target.files)); }} />
-    {camera && <CameraScanner onRead={(uri) => { setCamera(false); void inspect([uri]); }} onClose={() => setCamera(false)} />}
+    {camera && <div ref={cameraPanel} tabIndex={-1} role="group" aria-label="กล้องสแกน QR">
+      <CameraScanner onRead={(uri) => void inspect([uri])} onClose={() => { setCamera(false); (reviewHeading.current ?? scanButton.current)?.focus(); }} />
+    </div>}
     <div className="import-entry-heading"><strong>{manual ? 'กรอกคีย์ลับ' : 'หรือวาง URI'}</strong><button type="button" className="text-button" disabled={busy || !desktop} onClick={() => changeManual(!manual)}>{manual ? <><ScanLine size={15} />วาง URI แทน</> : <><KeyRound size={15} />กรอกคีย์ลับแทน</>}</button></div>
     {manual ? <form onSubmit={save}>
       <fieldset disabled={busy || !desktop}>
@@ -94,18 +109,27 @@ export function AddAccount({ onClose, onSaved }: { onClose: () => void; onSaved:
         </div></details>
       </fieldset>
       {preview && <p className="field-help">รายการ QR ที่ตรวจไว้ยังอยู่ กด “วาง URI แทน” เพื่อกลับไปตรวจและบันทึก</p>}
-      {error && <p role="alert" className="error">{error}</p>}
+      {error && <p role="alert" className="error" ref={importError} tabIndex={-1}>{error}</p>}
       <footer className="modal-actions"><button className="secondary" type="button" onClick={close} disabled={busy}>ยกเลิก</button><button className="primary" disabled={busy || !desktop}>{busy ? 'กำลังบันทึก…' : 'เพิ่มบัญชี'}</button></footer>
     </form> : <>
       <form className="import-uri-form" onSubmit={(e) => { e.preventDefault(); void inspect(); }}><label className="visually-hidden" htmlFor="setup-uri">URI ตั้งค่า 2FA หรือส่งออกบัญชี</label><input id="setup-uri" type="password" value={draft} disabled={busy || !desktop} onChange={(e) => setDraft(e.target.value)} placeholder="otpauth:// หรือ otpauth-migration://" maxLength={32768} autoComplete="off" spellCheck={false} /><button className="secondary" disabled={!draft.trim() || busy || !desktop}>อ่านรายการบัญชี</button></form>
       {busy && <p className="field-help" role="status">กำลังประมวลผลในเครื่อง…</p>}
       {preview && <section className="migration-preview" aria-label="ตรวจบัญชีก่อนบันทึก">
-        <div className="migration-summary"><strong>{kind.current === 'google' ? `อ่านแล้ว ${preview.parts} / ${preview.expected} QR` : `พบ ${preview.entries.length} บัญชี`}</strong><button className="text-button" type="button" onClick={reset} disabled={busy}>เริ่มชุดใหม่</button></div>
-        {!preview.complete && <p className="notice" role="status">กรุณาสแกนหรือเพิ่ม QR ที่เหลือให้ครบชุดก่อนนำเข้า</p>}
-        <div className="migration-list">{preview.entries.map((entry) => <label key={entry.index} className="migration-entry"><input type="checkbox" checked={selected.includes(entry.index)} disabled={busy || !!entry.reason} onChange={(e) => setSelected((old) => e.target.checked ? [...old, entry.index] : old.filter((index) => index !== entry.index))} /><span><strong>{entry.issuer || 'ไม่ระบุบริการ'}</strong><span>{entry.account}</span><small>{entry.reason ? reasons[entry.reason] ?? 'ไม่รองรับรายการนี้' : `${entry.algorithm} · ${entry.digits} หลัก`}</small></span></label>)}</div>
-        <p className="field-help">เลือกนำเข้า {selected.length} บัญชี โปรดตรวจรายการก่อนยืนยันบันทึก</p>
+        <div className="migration-summary"><h3 ref={reviewHeading} tabIndex={-1}>{kind.current === 'google' ? `${preview.complete ? 'อ่านครบแล้ว' : 'อ่านแล้ว'} ${preview.parts} / ${preview.expected} QR` : `พบ ${preview.entries.length} บัญชี`}</h3><button className="text-button" type="button" onClick={reset} disabled={busy}>เริ่มชุดใหม่</button></div>
+        {!preview.complete && <div className="notice import-next-step">
+          <p>เหลืออีก {remainingParts} รูป ให้กดไปที่ QR รูปถัดไปใน Google Authenticator บนมือถือ แล้วสแกนหรือเลือกรูปจากชุดเดิมให้ครบ</p>
+          <div className="import-next-actions">
+            <button type="button" className="primary" onClick={openCamera} disabled={busy || camera || !desktop}><Camera size={16} />สแกน QR รูปถัดไป</button>
+            <button type="button" className="secondary" onClick={chooseQrImages} disabled={busy || !desktop}><ImagePlus size={16} />เลือกรูปที่เหลือ</button>
+          </div>
+        </div>}
+        <div className="migration-list">{preview.entries.map((entry) => <label key={entry.index} className="migration-entry"><input type="checkbox" checked={selected.includes(entry.index)} disabled={busy || !!entry.reason} onChange={(event) => {
+          const checked = event.currentTarget.checked;
+          setSelected((old) => checked ? [...old, entry.index] : old.filter((index) => index !== entry.index));
+        }} /><span><strong>{entry.issuer || 'ไม่ระบุบริการ'}</strong><span>{entry.account}</span><small>{entry.reason ? reasons[entry.reason] ?? 'ไม่รองรับรายการนี้' : `${entry.algorithm} · ${entry.digits} หลัก`}</small></span></label>)}</div>
+        {preview.complete && <p className="field-help">{preview.entries.some((entry) => !entry.reason) ? 'ตรวจรายการ เลือกบัญชีที่ต้องการ แล้วกดนำเข้าด้านล่าง' : 'ไม่มีบัญชีใหม่ที่นำเข้าได้จาก QR ชุดนี้'}</p>}
       </section>}
-      {error && <p role="alert" className="error">{error}</p>}
+      {error && <p role="alert" className="error" ref={importError} tabIndex={-1}>{error}</p>}
       <form onSubmit={save}><footer className="modal-actions"><button className="secondary" type="button" onClick={close} disabled={busy}>ยกเลิก</button><button className="primary" disabled={!desktop || busy || !preview?.complete || !selected.length}>{busy ? 'กำลังบันทึก…' : `นำเข้า ${selected.length} บัญชี`}</button></footer></form>
     </>}
     <details className="advanced import-help"><summary>QR แบบไหนที่ใช้ได้?</summary><p>รองรับ QR ตั้งค่า TOTP จาก Google, Microsoft, GitHub และบริการอื่นที่ใช้มาตรฐานเดียวกัน รวมถึงชุดส่งออกจาก Google Authenticator หากมีหลาย QR ให้เพิ่มให้ครบชุด</p><p>Microsoft Authenticator ต้องใช้ QR ตั้งค่า TOTP จากเว็บไซต์ของบริการนั้น ไม่รองรับ QR แจ้งเตือนอนุมัติหรือจับคู่ตัวเลข บัญชีใหม่ในแอป Authenticator ต้องนำเข้ามาเพิ่มอีกครั้ง</p><p>รูป PNG, JPG หรือ WebP ไม่เกิน 8 MB ต่อรูป การอ่าน QR และกล้องทำในเครื่อง</p></details>
