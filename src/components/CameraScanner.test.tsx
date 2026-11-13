@@ -12,6 +12,7 @@ const stream = { getTracks: () => [track], getVideoTracks: () => [track] } as un
 const getUserMedia = vi.fn();
 const enumerateDevices = vi.fn();
 const read = vi.fn();
+const drawImage = vi.fn();
 const pixels = new Uint8ClampedArray(16);
 beforeEach(() => {
   vi.clearAllMocks(); pixels.fill(255);
@@ -21,7 +22,7 @@ beforeEach(() => {
   getCapabilities.mockReturnValue({});
   applyConstraints.mockResolvedValue(undefined);
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
-  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: vi.fn(), getImageData: () => ({ data: pixels, width: 2, height: 2 }), clearRect: vi.fn() } as unknown as CanvasRenderingContext2D);
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage, getImageData: () => ({ data: pixels, width: 2, height: 2 }), clearRect: vi.fn() } as unknown as CanvasRenderingContext2D);
   vi.mocked(jsQR).mockReturnValue(null);
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
@@ -31,6 +32,7 @@ it('requests video without audio and stops every track when closed/unmounted', a
   await screen.findByText(/จัด QR ให้อยู่กลางกรอบ/);
   expect(getUserMedia).toHaveBeenCalledWith(expect.objectContaining({ audio: false, video: expect.any(Object) }));
   expect(applyConstraints).not.toHaveBeenCalled();
+  expect(screen.getByText(/แอปปรับโฟกัสกล้องนี้ไม่ได้/)).toBeVisible();
   view.unmount(); expect(stop).toHaveBeenCalled();
 });
 
@@ -85,6 +87,14 @@ it('decodes a synthetic frame once, clears its pixels, and stops the stream befo
   render(<CameraScanner onRead={read} onClose={vi.fn()} />);
   await waitFor(() => expect(read).toHaveBeenCalledExactlyOnceWith('otpauth://totp/Synthetic?secret=GEZDGNBV'));
   expect(stop).toHaveBeenCalled(); expect([...pixels]).toEqual(Array(16).fill(0));
+});
+
+it('tries the full frame at native resolution when a 1080p center crop does not decode', async () => {
+  vi.spyOn(HTMLVideoElement.prototype, 'readyState', 'get').mockReturnValue(2);
+  vi.spyOn(HTMLVideoElement.prototype, 'videoWidth', 'get').mockReturnValue(1920);
+  vi.spyOn(HTMLVideoElement.prototype, 'videoHeight', 'get').mockReturnValue(1080);
+  render(<CameraScanner onRead={read} onClose={vi.fn()} />);
+  await waitFor(() => expect(drawImage).toHaveBeenCalledWith(expect.any(HTMLVideoElement), 0, 0, 1920, 1080, 0, 0, 1920, 1080));
 });
 
 it('retries after permission is granted and supports explicit close', async () => {

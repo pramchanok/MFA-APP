@@ -37,6 +37,7 @@ export function CameraScanner({ onRead, onClose }: { onRead: (uri: string) => vo
   const [selectedCamera, setSelectedCamera] = useState('');
   const [focusTrack, setFocusTrack] = useState<MediaStreamTrack>();
   const [focusing, setFocusing] = useState(false);
+  const [canControlFocus, setCanControlFocus] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -50,7 +51,7 @@ export function CameraScanner({ onRead, onClose }: { onRead: (uri: string) => vo
       canvas.width = 0; canvas.height = 0;
     };
     shutdown.current = () => { active = false; stop(); };
-    setError(''); setReady(false); setFocusTrack(undefined); setFocusing(false);
+    setError(''); setReady(false); setFocusTrack(undefined); setFocusing(false); setCanControlFocus(false);
     async function start() {
       try {
         if (!navigator.mediaDevices?.getUserMedia) throw new Error('unavailable');
@@ -76,9 +77,12 @@ export function CameraScanner({ onRead, onClose }: { onRead: (uri: string) => vo
         const modes = (track?.getCapabilities?.() as FocusCapabilities | undefined)?.focusMode;
         if (track && modes?.includes('continuous')) {
           void setCameraFocus(track, 'continuous').then((applied) => {
-            if (active && !applied && modes.includes('single-shot')) setFocusTrack(track);
+            if (!active) return;
+            setCanControlFocus(applied || modes.includes('single-shot'));
+            if (!applied && modes.includes('single-shot')) setFocusTrack(track);
           });
         } else if (track && modes?.includes('single-shot')) {
+          setCanControlFocus(true);
           void setCameraFocus(track, 'single-shot').then(() => { if (active) setFocusTrack(track); });
         }
         const context = canvas.getContext('2d', { willReadFrequently: true });
@@ -92,7 +96,8 @@ export function CameraScanner({ onRead, onClose }: { onRead: (uri: string) => vo
             const width = scanCenter ? side : current.videoWidth;
             const height = scanCenter ? side : current.videoHeight;
             scanCenter = !scanCenter;
-            const scale = Math.min(1, 1280 / Math.max(width, height));
+            // Keep every pixel at Full HD so the smaller modules of dense codes survive.
+            const scale = Math.min(1, 1920 / Math.max(width, height), Math.sqrt(1920 * 1080 / (width * height)));
             canvas.width = Math.round(width * scale);
             canvas.height = Math.round(height * scale);
             try {
@@ -121,6 +126,7 @@ export function CameraScanner({ onRead, onClose }: { onRead: (uri: string) => vo
     {error ? <div className="camera-error"><CameraOff size={28} /><p role="alert">{error}</p><button type="button" className="secondary" onClick={() => setAttempt((value) => value + 1)}>ลองเปิดกล้องอีกครั้ง</button></div> : <>
       <div className="camera-frame"><video ref={video} autoPlay muted playsInline aria-label="ภาพจากกล้อง" /><div className="camera-guide" aria-hidden="true" /></div>
       <p className="field-help" role="status">{ready ? 'จัด QR ให้อยู่กลางกรอบ ถ้าภาพเบลอให้ถอยออกช้า ๆ จนภาพคม แล้วถือให้นิ่ง' : 'กำลังเปิดกล้อง…'}</p>
+      {ready && !canControlFocus && <p className="field-help">แอปปรับโฟกัสกล้องนี้ไม่ได้ หากภาพยังเบลอ ให้เปิด QR ให้ใหญ่ขึ้นบนมือถือ หรือใช้ปุ่ม “เลือกรูป QR” นำเข้าจากภาพหน้าจอ</p>}
     </>}
     <div className="camera-actions">
       {!error && focusTrack && <button type="button" className="secondary" disabled={focusing} onClick={() => {
