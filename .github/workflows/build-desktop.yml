@@ -70,6 +70,8 @@ jobs:
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
         with:
+          # Rust 1.100.0 reproduces a native Windows test crash (0xc0000005).
+          toolchain: ${{ runner.os == 'Windows' && '1.99.1' || 'stable' }}
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
