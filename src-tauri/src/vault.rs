@@ -23,7 +23,10 @@ const METADATA: &[u8] = b"accounts-v1";
 const SYNC_METADATA: &[u8] = b"sync-v1";
 const MAX_FILE: u64 = 16 * 1024 * 1024;
 const MAX_ACCOUNTS: usize = 1000;
-pub const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+const DEFAULT_AUTO_LOCK_MINUTES: u32 = 5;
+const MAX_AUTO_LOCK_MINUTES: u32 = 1440;
+#[cfg(test)]
+const IDLE_TIMEOUT: Duration = Duration::from_secs(DEFAULT_AUTO_LOCK_MINUTES as u64 * 60);
 const BAD_BACKUP: &str = "Invalid backup, damaged vault or incorrect password.";
 const IO_ERROR: &str =
     "Unable to read or save the encrypted vault. Check file permissions and disk space.";
@@ -55,6 +58,7 @@ impl Drop for Session {
 pub struct Vault {
     path: PathBuf,
     session: Option<Session>,
+    auto_lock_minutes: u32,
     // Held for the Vault lifetime, including while its secrets are locked.
     // The OS releases the advisory lock automatically if the process exits.
     _file_lock: File,
@@ -84,9 +88,22 @@ impl Vault {
         file_lock.try_lock().map_err(|_| {
             "This vault is already open in another app instance. Close it before trying again."
         })?;
+        let auto_lock_minutes = File::open(path.with_extension("auto-lock"))
+            .ok()
+            .and_then(|file| {
+                let mut value = String::new();
+                file.take(5).read_to_string(&mut value).ok()?;
+                value
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|minutes| minutes.to_string() == value)
+            })
+            .filter(|&minutes| minutes <= MAX_AUTO_LOCK_MINUTES)
+            .unwrap_or(DEFAULT_AUTO_LOCK_MINUTES);
         Ok(Self {
             path,
             session: None,
+            auto_lock_minutes,
             _file_lock: file_lock,
         })
     }
@@ -100,15 +117,38 @@ impl Vault {
     }
 
     pub fn expire(&mut self) -> bool {
-        if self
-            .session
-            .as_ref()
-            .is_some_and(|s| s.last_activity.elapsed() >= IDLE_TIMEOUT)
+        let minutes = self.auto_lock_minutes;
+        if minutes != 0
+            && self.session.as_ref().is_some_and(|s| {
+                s.last_activity.elapsed() >= Duration::from_secs(u64::from(minutes) * 60)
+            })
         {
             self.lock();
             return true;
         }
         false
+    }
+
+    pub fn auto_lock_minutes(&self) -> u32 {
+        self.auto_lock_minutes
+    }
+
+    pub fn set_auto_lock_minutes(&mut self, minutes: u32) -> Result<()> {
+        if minutes > MAX_AUTO_LOCK_MINUTES {
+            return Err("Auto-lock must be off or between 1 and 1440 minutes.".into());
+        }
+        self.session()?;
+        atomic_write(
+            &self.path.with_extension("auto-lock"),
+            minutes.to_string().as_bytes(),
+            true,
+        )
+        .map_err(|_| "Unable to save the auto-lock setting.".to_string())?;
+        self.auto_lock_minutes = minutes;
+        if let Some(session) = self.session.as_mut() {
+            session.last_activity = Instant::now();
+        }
+        Ok(())
     }
 
     pub fn lock(&mut self) {
@@ -855,6 +895,34 @@ fn atomic_write(path: &Path, bytes: &[u8], replace: bool) -> Result<()> {
 mod tests {
     use super::*;
     const PASSWORD: &str = "test-only-password-123";
+
+    #[test]
+    fn auto_lock_preference_persists_and_controls_native_expiry() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vault.mfa");
+        let mut vault = Vault::new(path.clone()).unwrap();
+        assert_eq!(vault.auto_lock_minutes(), 5);
+        assert!(vault.set_auto_lock_minutes(0).is_err());
+        vault.create(PASSWORD).unwrap();
+        assert!(vault.set_auto_lock_minutes(1441).is_err());
+        vault.set_auto_lock_minutes(12).unwrap();
+        vault.session.as_mut().unwrap().last_activity = Instant::now() - IDLE_TIMEOUT;
+        assert!(!vault.expire());
+        vault.session.as_mut().unwrap().last_activity = Instant::now() - Duration::from_secs(720);
+        assert!(vault.expire());
+        vault.unlock(PASSWORD).unwrap();
+        vault.set_auto_lock_minutes(0).unwrap();
+        drop(vault);
+
+        let mut reopened = Vault::new(path).unwrap();
+        assert_eq!(reopened.auto_lock_minutes(), 0);
+        assert!(!reopened.status().unlocked);
+        reopened.unlock(PASSWORD).unwrap();
+        reopened.session.as_mut().unwrap().last_activity = Instant::now() - IDLE_TIMEOUT;
+        assert!(!reopened.expire());
+        reopened.lock();
+        assert!(!reopened.status().unlocked);
+    }
 
     // Mock only the OS boundary. These tests use real Stronghold vaults/KDFs.
     struct TestProtector {

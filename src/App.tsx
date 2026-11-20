@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { check } from '@tauri-apps/plugin-updater';
 import { listen } from '@tauri-apps/api/event';
 import { Archive, ArrowDownToLine, Check, ChevronRight, Cloud, Fingerprint, FolderKey, GripVertical, KeyRound, LayoutGrid, LockKeyhole, Moon, Plus, Search, Settings2, ShieldCheck, Sun, WifiOff } from 'lucide-react';
 import { api, desktop, safeError } from './api';
@@ -11,7 +10,7 @@ import { ExportAccount } from './components/ExportAccount';
 import { AddAccount } from './components/AddAccount';
 import { GoogleImportResult } from './components/GoogleImportResult';
 import { Modal } from './components/Modal';
-import { Updates } from './components/Updates';
+import { Updates, useUpdates } from './components/Updates';
 import { Sync } from './components/Sync';
 import { useSync } from './useSync';
 import { useAppearance } from './useAppearance';
@@ -20,7 +19,6 @@ import { Backup } from './components/Backup';
 import { moveAccount } from './accountOrder';
 import { useCardDrag } from './useCardDrag';
 
-const IDLE_MS = 300_000;
 type Overlay = 'add' | 'google-done' | 'updates' | 'import' | 'sync' | 'sync-create' | 'device' | 'settings' | 'backup' | null;
 
 export default function App() {
@@ -28,6 +26,8 @@ export default function App() {
   const [status, setStatus] = useState<VaultStatus | null>(null);
   const [device, setDevice] = useState<DeviceUnlockStatus>({ available: false, enabled: false, label: 'ปลดล็อกด้วยอุปกรณ์' });
   const [info, setInfo] = useState<AppInfo>({ version: '0.5.0', updaterConfigured: false });
+  const autoLockMinutes = info.autoLockMinutes ?? 5;
+  const updater = useUpdates(desktop && !info.mobile && info.updaterConfigured);
   const [accounts, setAccounts] = useState<AccountCode[]>([]);
   const [search, setSearch] = useState('');
   const [password, setPassword] = useState('');
@@ -44,15 +44,12 @@ export default function App() {
   const [importPath, setImportPath] = useState('');
   const [importPassword, setImportPassword] = useState('');
   const [replaceConfirmed, setReplaceConfirmed] = useState(false);
-  const [updateHint, setUpdateHint] = useState('');
   const [startup, setStartup] = useState(0);
   const [moving, setMoving] = useState(false);
   const savingOrder = useRef(false);
   const generation = useRef(0);
   const startupUnlockPending = useRef(true);
   const revision = useRef(0);
-  const lastActivity = useRef(Date.now());
-  const lastNativeTouch = useRef(0);
   const loadingCodes = useRef(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -132,42 +129,45 @@ export default function App() {
 
   useEffect(() => {
     if (!status?.unlocked) return;
-    lastActivity.current = Date.now();
     const token = generation.current;
     const poll = setInterval(async () => {
       if (loadingCodes.current || savingOrder.current || token !== generation.current) return;
-      if (desktop && Date.now() - lastActivity.current >= IDLE_MS) { await lock('ล็อกอัตโนมัติหลังไม่มีการใช้งาน 5 นาที'); return; }
       loadingCodes.current = true;
       const currentRevision = revision.current;
       try { const codes = await api.codes(); if (token === generation.current && currentRevision === revision.current) setAccounts(codes); }
       catch { if (token === generation.current) await lock('คลังบัญชีถูกล็อก กรุณาปลดล็อกอีกครั้ง'); }
       finally { loadingCodes.current = false; }
     }, 1000);
-    const activity = () => {
-      lastActivity.current = Date.now();
-      if (desktop && Date.now() - lastNativeTouch.current > 15_000) {
-        lastNativeTouch.current = Date.now();
-        void api.touch().catch(() => { if (token === generation.current) void lock('คลังบัญชีถูกล็อก กรุณาปลดล็อกอีกครั้ง'); });
-      }
-    };
-    const hidden = () => { if (desktop && document.visibilityState === 'hidden') void lock(); };
-    window.addEventListener('pointerdown', activity); window.addEventListener('pointermove', activity); window.addEventListener('keydown', activity);
-    document.addEventListener('visibilitychange', hidden);
-    return () => {
-      clearInterval(poll); window.removeEventListener('pointerdown', activity); window.removeEventListener('pointermove', activity); window.removeEventListener('keydown', activity);
-      document.removeEventListener('visibilitychange', hidden);
-    };
+    return () => clearInterval(poll);
   }, [status?.unlocked, lock]);
 
   useEffect(() => {
-    if (!desktop || !status?.unlocked || info.mobile || !info.updaterConfigured) return;
-    let active = true;
-    check().then(async (update) => {
-      if (active) setUpdateHint(update ? `มีเวอร์ชัน ${update.version}` : 'เวอร์ชันล่าสุด');
-      await update?.close();
-    }).catch(() => { if (active) setUpdateHint('ยังตรวจอัปเดตไม่ได้'); });
-    return () => { active = false; };
-  }, [status?.unlocked, info.updaterConfigured, info.mobile]);
+    if (!desktop || !status?.unlocked || autoLockMinutes === 0) return;
+    const token = generation.current;
+    let lastTouch = -Infinity;
+    const activity = () => {
+      const now = performance.now();
+      if (token !== generation.current || now - lastTouch < 1000) return;
+      lastTouch = now;
+      void api.touch().catch(() => { if (token === generation.current) void lock('คลังบัญชีถูกล็อก กรุณาปลดล็อกอีกครั้ง'); });
+    };
+    const hidden = () => {
+      if (token === generation.current && document.visibilityState === 'hidden') void lock();
+    };
+    const events = ['pointerdown', 'pointermove', 'keydown', 'wheel'];
+    events.forEach((event) => window.addEventListener(event, activity, { capture: true, passive: true }));
+    document.addEventListener('visibilitychange', hidden);
+    return () => {
+      events.forEach((event) => window.removeEventListener(event, activity, true));
+      document.removeEventListener('visibilitychange', hidden);
+    };
+  }, [status?.unlocked, autoLockMinutes, lock]);
+
+  async function changeAutoLock(minutes: number) {
+    await api.setAutoLockMinutes(minutes);
+    setInfo((current) => ({ ...current, autoLockMinutes: minutes }));
+  }
+
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
 
   async function authenticate(e: FormEvent) {
@@ -181,7 +181,7 @@ export default function App() {
     try {
       const result = status.exists ? await api.unlock(password) : await api.create(password);
       if (token !== generation.current) return;
-      setPassword(''); setConfirmation(''); setAccounts(result); lastActivity.current = Date.now();
+      setPassword(''); setConfirmation(''); setAccounts(result);
       setStatus({ exists: true, unlocked: true });
     } catch (e) { if (token === generation.current) { setError(safeError(e)); setPassword(''); setConfirmation(''); } }
     finally { if (token === generation.current) setBusy(false); }
@@ -194,13 +194,13 @@ export default function App() {
     try {
       const result = await api.unlockDevice();
       if (token !== generation.current) return;
-      if (document.visibilityState === 'hidden') { await lock(); return; }
-      setAccounts(result); lastActivity.current = Date.now();
+      if (autoLockMinutes > 0 && document.visibilityState === 'hidden') { await lock(); return; }
+      setAccounts(result);
       setStatus({ exists: true, unlocked: true });
     } catch (error) {
       if (token === generation.current) setError(safeError(error));
     } finally { if (token === generation.current) { setBusy(false); setDevicePromptOpen(false); } }
-  }, [lock]);
+  }, [autoLockMinutes, lock]);
 
   useEffect(() => {
     if (!desktop || info.mobile || !status?.exists || status.unlocked || !device.available || !device.enabled || busy || overlay) return;
@@ -260,7 +260,7 @@ export default function App() {
       const result = await api.importBackup(importPath, importPassword);
       if (token !== generation.current) return;
       setImportPassword(''); setPassword(''); setConfirmation(''); setOverlay(null); setImportPath('');
-      revision.current += 1; setAccounts(result); lastActivity.current = Date.now(); setStatus({ exists: true, unlocked: true });
+      revision.current += 1; setAccounts(result); setStatus({ exists: true, unlocked: true });
       notify('นำเข้าไฟล์สำรองแล้ว ใช้รหัสผ่านของไฟล์สำรองเพื่อปลดล็อกครั้งถัดไป');
     } catch (e) { if (token === generation.current) { setError(safeError(e)); setImportPassword(''); } }
     finally { if (token === generation.current) setBusy(false); }
@@ -297,6 +297,14 @@ export default function App() {
       <footer className="modal-actions"><button type="button" className="secondary" disabled={busy} onClick={() => { setOverlay(null); setImportPassword(''); setError(''); }}>ยกเลิก</button><button className="primary" disabled={busy || (!!status?.exists && !replaceConfirmed)}>{busy ? 'กำลังนำเข้า…' : 'นำเข้าและปลดล็อก'}</button></footer>
     </form>
   </Modal>;
+  const updateDialog = overlay === 'updates' && <Updates updater={updater} onClose={() => setOverlay(null)} />;
+  const updateButton = updater.update && <button className="secondary" disabled={busy} onClick={() => setOverlay('updates')}>
+    <ArrowDownToLine size={16} />มีอัปเดตเวอร์ชัน {updater.update.version}
+  </button>;
+  const updateHint = updater.update ? `มีเวอร์ชัน ${updater.update.version}`
+    : updater.state === 'current' ? 'เวอร์ชันล่าสุด'
+    : updater.state === 'checking' ? 'กำลังตรวจอัปเดต…'
+    : updater.state === 'error' ? 'ยังตรวจอัปเดตไม่ได้' : '';
 
   if (!status) return <main className="loading-screen"><ShieldCheck size={40} /><h1>MFA Desktop</h1>{error ? <><p className="error" role="alert">{error}</p><button className="primary" onClick={() => setStartup((old) => old + 1)}>ลองอีกครั้ง</button></> : <p>กำลังเปิดคลังบัญชี…</p>}</main>;
 
@@ -313,7 +321,8 @@ export default function App() {
         ? 'หากต้องการใช้ใบหน้าหรือลายนิ้วมือ ให้ปลดล็อกด้วยรหัสผ่านหลัก แล้วไปที่ ตั้งค่า → ตั้งค่า Windows Hello'
         : 'Windows Hello ยังไม่พร้อมใช้งาน ตรวจสอบ Settings → Accounts → Sign-in options ใน Windows แล้วเปิดแอปใหม่'}</p>}
       {!info.mobile && <button className="text-button import-link" onClick={() => void chooseImport()} disabled={busy}><ArrowDownToLine size={16} />นำเข้าจากไฟล์สำรอง</button>}<p className="auth-version">MFA Desktop {info.version}</p>
-    </div></section>{importDialog}
+      {updateButton}
+    </div></section>{importDialog}{updateDialog}
   </main>;
 
   return <div className="app-shell">
@@ -337,6 +346,7 @@ export default function App() {
       </div>}
     </header>
       {!desktop && <div className="preview-banner"><span>ตัวอย่างหน้าจอ</span>รหัสและบัญชีสมมติ · เพิ่มบัญชีจริงได้ในแอปที่ติดตั้งเท่านั้น</div>}
+      {updateButton && <div className="update-notice">{updateButton}</div>}
       {error && !deleting && overlay !== 'import' && <div className="error workspace-error" role="alert">{error}<button className="text-button" onClick={() => setError('')}>ปิด</button></div>}
       <div className="account-list-help"><span>คลิกการ์ดเพื่อคัดลอกรหัส</span><span id="reorder-help"><GripVertical size={15} />ลากจุดจับเพื่อเรียงบัญชี <span className="visually-hidden">หรือโฟกัสจุดจับแล้วใช้ลูกศรเพื่อย้าย Home เพื่อย้ายบนสุด End เพื่อย้ายท้ายสุด</span></span></div><section className="account-grid" data-card-size={appearance.cardSize} aria-label="บัญชี 2FA" aria-busy={moving}>
         {filtered.length ? filtered.map((account) => <AccountRow key={account.id} account={account} preview={!desktop} copied={copied === account.id} onCopy={() => void copy(account)} onDelete={() => setDeleting(account)} onExport={() => setExporting(account)} moving={moving} dragging={cardDrag.drag?.id === account.id} dropTarget={cardDrag.drag?.over === account.id && cardDrag.drag.id !== account.id} onDragStart={(event) => cardDrag.start(account.id, event)} onMoveTop={() => void persistOrder(moveAccount(accounts, accounts.map((item) => item.id), account.id, accounts[0].id))} onReorderKey={(event) => {
@@ -350,11 +360,11 @@ export default function App() {
       <footer className="workspace-footer"><span><WifiOff size={15} />สร้างรหัสได้แบบออฟไลน์</span><span>เวลาในเครื่องต้องตรง เพื่อให้รหัสใช้งานได้</span></footer>
       {notice && <div className="toast" role="status"><Check size={18} />{notice}</div>}
     </main></div>
-    {overlay === 'settings' && <Settings appearance={appearance.appearance} onAppearance={appearance.setAppearance} info={info} device={device} native={desktop} updateHint={updateHint} onClose={() => setOverlay(null)} onDevice={() => setOverlay('device')} onUpdates={() => setOverlay('updates')} />}
+    {overlay === 'settings' && <Settings appearance={appearance.appearance} onAppearance={appearance.setAppearance} info={info} device={device} native={desktop} autoLockMinutes={autoLockMinutes} onAutoLock={changeAutoLock} updateHint={updateHint} onClose={() => setOverlay(null)} onDevice={() => setOverlay('device')} onUpdates={() => setOverlay('updates')} />}
     {overlay === 'backup' && <Backup enabled={desktop && !info.mobile} busy={busy} onClose={() => setOverlay(null)} onExport={() => void exportBackup()} onImport={() => void chooseImport()} />}
     {overlay === 'add' && <AddAccount onClose={() => setOverlay(null)} onSaved={(result, count) => { if (token === generation.current) { revision.current += 1; setAccounts(result); setSearch(''); setGoogleImportedCount(count ?? 0); setOverlay(count ? 'google-done' : null); notify(count ? `นำเข้าแล้ว ${count} บัญชี` : 'เพิ่มบัญชีแล้ว'); void sync.refresh(); } }} />}
     {overlay === 'google-done' && <GoogleImportResult count={googleImportedCount} status={sync.status} working={sync.working} syncError={sync.error} onClose={() => { setGoogleImportedCount(0); setOverlay(null); }} onSync={() => { setGoogleImportedCount(0); setOverlay(sync.status?.configured ? 'sync' : 'sync-create'); }} />}
-    {overlay === 'updates' && <Updates configured={desktop && info.updaterConfigured} automatic onClose={() => setOverlay(null)} />}
+    {updateDialog}
     {overlay === 'device' && <DeviceUnlock status={device} onClose={() => setOverlay(null)} onChanged={(value) => { if (token === generation.current) { setDevice(value); setOverlay(null); notify(value.enabled ? `เปิดใช้ ${value.label} สำหรับเครื่องนี้แล้ว` : 'ปิดการปลดล็อกด้วยอุปกรณ์แล้ว'); } }} />}
     {(overlay === 'sync' || overlay === 'sync-create') && <Sync initialMode={overlay === 'sync-create' ? 'create' : 'pair'} mobile={info.mobile} status={sync.status} working={sync.working} syncError={sync.error} refresh={sync.refresh} onClose={() => setOverlay(null)} onChanged={(result) => { if (token !== generation.current) return; if (result) { revision.current += 1; setAccounts(result); } void sync.refresh(); }} />}
     {importDialog}

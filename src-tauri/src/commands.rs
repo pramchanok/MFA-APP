@@ -407,10 +407,11 @@ struct AppInfo {
     version: String,
     updater_configured: bool,
     mobile: bool,
+    auto_lock_minutes: u32,
 }
 
 #[tauri::command]
-fn app_info(app: tauri::AppHandle) -> AppInfo {
+async fn app_info(app: tauri::AppHandle, state: State<'_, NativeState>) -> Result<AppInfo> {
     let updater_configured = cfg!(desktop)
         && app
             .config()
@@ -420,11 +421,17 @@ fn app_info(app: tauri::AppHandle) -> AppInfo {
             .and_then(|v| v.get("pubkey"))
             .and_then(serde_json::Value::as_str)
             .is_some_and(|key| !key.trim().is_empty() && key.trim() != "UNCONFIGURED");
-    AppInfo {
+    Ok(AppInfo {
         version: app.package_info().version.to_string(),
         updater_configured,
         mobile: cfg!(mobile),
-    }
+        auto_lock_minutes: with_vault(&state, |vault| Ok(vault.auto_lock_minutes())).await?,
+    })
+}
+
+#[tauri::command]
+async fn set_auto_lock_minutes(state: State<'_, NativeState>, minutes: u32) -> Result<()> {
+    with_vault(&state, move |vault| vault.set_auto_lock_minutes(minutes)).await
 }
 
 #[tauri::command]
@@ -516,11 +523,21 @@ pub fn run() {
             #[cfg(mobile)]
             if matches!(event, tauri::WindowEvent::Suspended) {
                 // Do not block the mobile UI thread: clipboard plugin calls are
-                // marshalled back to that thread. Clear the UI immediately and
-                // lock native secrets after any in-flight operation completes.
+                // marshalled back to that thread.
                 let state = window.state::<NativeState>().inner().clone();
-                let _ = window.emit("vault-locked", ());
-                std::thread::spawn(move || lock_and_clear(&state));
+                let window = window.clone();
+                std::thread::spawn(move || {
+                    let Ok(mut vault) = state.vault.lock() else {
+                        return;
+                    };
+                    if vault.auto_lock_minutes() == 0 {
+                        return;
+                    }
+                    vault.lock();
+                    drop(vault);
+                    let _ = state.clipboard.send(ClipboardAction::Clear(None));
+                    let _ = window.emit("vault-locked", ());
+                });
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -546,6 +563,7 @@ pub fn run() {
             export_backup,
             import_backup,
             app_info,
+            set_auto_lock_minutes,
             sync_status,
             sync_create,
             sync_pair,

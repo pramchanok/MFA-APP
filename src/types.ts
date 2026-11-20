@@ -24,7 +24,7 @@ export type GoogleExportPreview = {
   entries: { index: number; issuer: string; account: string; algorithm: string; digits: number; reason: string | null }[];
   parts: number; expected: number; complete: boolean;
 };
-export type AppInfo = { version: string; updaterConfigured: boolean; mobile?: boolean };
+export type AppInfo = { version: string; updaterConfigured: boolean; mobile?: boolean; autoLockMinutes?: number };
 export type SyncStatus = { configured: boolean; server: string | null; vaultId: string | null; pending: number; lastSync: number | null };
 export type PairingInfo = { uri: string };
 export type AccountQr = { image: string; customParameters: boolean };

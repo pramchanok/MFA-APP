@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StrictMode } from 'react';
+import { check, type Update } from '@tauri-apps/plugin-updater';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { api } from './api';
@@ -9,7 +10,7 @@ import type { AccountCode } from './types';
 vi.mock('./api', () => ({
   desktop: true,
   safeError: (e: unknown) => typeof e === 'string' ? e : 'ทำรายการไม่สำเร็จ',
-  api: { status: vi.fn(), info: vi.fn(), create: vi.fn(), unlock: vi.fn(), deviceStatus: vi.fn(), enableDevice: vi.fn(), unlockDevice: vi.fn(), disableDevice: vi.fn(), lock: vi.fn(), touch: vi.fn(), codes: vi.fn(), reorder: vi.fn(), previewAccounts: vi.fn(), importAccounts: vi.fn(), add: vi.fn(), remove: vi.fn(), copy: vi.fn(), accountQr: vi.fn(), exportBackup: vi.fn(), importBackup: vi.fn(), previewGoogle: vi.fn(), importGoogle: vi.fn(), syncStatus: vi.fn(), syncOnce: vi.fn(), syncCreate: vi.fn(), syncPair: vi.fn(), syncPairing: vi.fn(), syncDisconnect: vi.fn() },
+  api: { status: vi.fn(), info: vi.fn(), create: vi.fn(), unlock: vi.fn(), deviceStatus: vi.fn(), enableDevice: vi.fn(), unlockDevice: vi.fn(), disableDevice: vi.fn(), lock: vi.fn(), touch: vi.fn(), setAutoLockMinutes: vi.fn(), codes: vi.fn(), reorder: vi.fn(), previewAccounts: vi.fn(), importAccounts: vi.fn(), add: vi.fn(), remove: vi.fn(), copy: vi.fn(), accountQr: vi.fn(), exportBackup: vi.fn(), importBackup: vi.fn(), previewGoogle: vi.fn(), importGoogle: vi.fn(), syncStatus: vi.fn(), syncOnce: vi.fn(), syncCreate: vi.fn(), syncPair: vi.fn(), syncPairing: vi.fn(), syncDisconnect: vi.fn() },
 }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(), save: vi.fn() }));
 vi.mock('@tauri-apps/plugin-updater', () => ({ check: vi.fn() }));
@@ -26,12 +27,53 @@ beforeEach(() => {
   vi.mocked(api.codes).mockResolvedValue([account]);
   vi.mocked(api.lock).mockResolvedValue();
   vi.mocked(api.touch).mockResolvedValue();
+  vi.mocked(api.setAutoLockMinutes).mockResolvedValue();
   vi.mocked(api.copy).mockResolvedValue();
   vi.mocked(api.syncStatus).mockResolvedValue({ configured: false, server: null, vaultId: null, pending: 0, lastSync: null });
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe('vault interface', () => {
+  it('checks once on startup with the vault locked and reuses the result in the update dialog', async () => {
+    vi.mocked(api.status).mockResolvedValue({ exists: true, unlocked: false });
+    vi.mocked(api.info).mockResolvedValue({ version: '0.5.6', updaterConfigured: true });
+    const downloadAndInstall = vi.fn();
+    vi.mocked(check).mockResolvedValue({ version: '0.5.7', close: vi.fn().mockResolvedValue(undefined), downloadAndInstall } as unknown as Update);
+    render(<StrictMode><App /></StrictMode>);
+    const available = await screen.findByRole('button', { name: 'มีอัปเดตเวอร์ชัน 0.5.7' });
+    expect(screen.getByLabelText('รหัสผ่านหลัก')).toBeVisible();
+    expect(check).toHaveBeenCalledOnce();
+    fireEvent.click(available);
+    expect(await screen.findByRole('button', { name: 'ติดตั้งและเปิดแอปใหม่' })).toBeVisible();
+    expect(check).toHaveBeenCalledOnce();
+    expect(downloadAndInstall).not.toHaveBeenCalled();
+  });
+
+  it('saves custom auto-lock minutes and keeps manual lock available when auto-lock is disabled', async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'ตั้งค่า' }));
+    const duration = screen.getByRole('spinbutton', { name: 'เวลาที่ไม่ได้ใช้งาน (นาที)' });
+    expect(duration).toHaveValue(5);
+    fireEvent.change(duration, { target: { value: '12' } });
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึกการล็อกอัตโนมัติ' }));
+    expect(await screen.findByText('บันทึกการตั้งค่าแล้ว')).toBeVisible();
+    expect(api.setAutoLockMinutes).toHaveBeenLastCalledWith(12);
+    fireEvent.change(screen.getByRole('combobox', { name: 'ล็อกอัตโนมัติ' }), { target: { value: 'off' } });
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึกการล็อกอัตโนมัติ' }));
+    expect(await screen.findByText('บันทึกการตั้งค่าแล้ว')).toBeVisible();
+    expect(api.setAutoLockMinutes).toHaveBeenLastCalledWith(0);
+    fireEvent.click(screen.getByRole('button', { name: 'ปิดหน้าต่าง' }));
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    try {
+      fireEvent(document, new Event('visibilitychange'));
+      expect(api.lock).not.toHaveBeenCalled();
+      expect(screen.getByText(account.account)).toBeVisible();
+    } finally { visibility.mockRestore(); }
+    fireEvent.click(screen.getByRole('button', { name: 'ล็อกแอป' }));
+    expect(api.lock).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText('รหัสผ่านหลัก')).toBeVisible();
+  });
+
   it('persists keyboard reordering without copying and restores authoritative order after a failed save', async () => {
     const second = { ...account, id: '2', issuer: 'Microsoft' };
     vi.mocked(api.codes).mockResolvedValue([account, second]);
